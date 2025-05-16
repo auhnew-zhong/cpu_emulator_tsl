@@ -1,0 +1,24 @@
+#ifndef CPU_H
+#define CPU_H
+
+#include <stdint.h>
+#include "bus.h"
+
+// VU13P中，BRAM数为2688，URAM数为1280
+// 单个Block RAM是36K bit，单个Ultra RAM是288K bit
+// BRAM数为 2688 * 36K = 94.5M bit
+// URAM数为 1280 * 288K = 360M bit
+// 总内存为94.5M + 360M = 454.5M bit = 56.8M Byte
+
+typedef struct CPU {
+    uint32_t regs[16];          // 16 32-bit registers (R0-R15)
+    uint32_t pc;                // 32-bit program counter
+    struct BUS bus;             // CPU connected to BUS
+} CPU;
+
+void cpu_init(struct CPU *cpu);
+uint32_t cpu_fetch(struct CPU *cpu);
+int cpu_execute(struct CPU *cpu, uint32_t inst);
+void dump_registers(struct CPU *cpu); 
+
+#endif
