@@ -6,8 +6,8 @@
 
 // VU13P中，BRAM数为2688，URAM数为1280
 // 单个Block RAM是36K bit，单个Ultra RAM是288K bit
-// BRAM数为 2688 * 36K = 94.5M bit
-// URAM数为 1280 * 288K = 360M bit
+// BRAM数为 2688 * 36K = 94.5M bit = 12MB
+// URAM数为 1280 * 288K = 360M bit = 45MB
 // 总内存为94.5M + 360M = 454.5M bit = 56.8M Byte
 
 typedef struct CPU {
@@ -17,8 +17,8 @@ typedef struct CPU {
 } CPU;
 
 void cpu_init(struct CPU *cpu);
-uint32_t cpu_fetch(struct CPU *cpu);
-int cpu_execute(struct CPU *cpu, uint32_t inst);
+uint64_t cpu_fetch(struct CPU *cpu, uint8_t *inst_length);
+int cpu_execute(struct CPU *cpu, uint64_t inst, uint8_t inst_length);
 void dump_registers(struct CPU *cpu); 
 
 #endif

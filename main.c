@@ -22,8 +22,7 @@ void read_file(CPU* cpu, char *filename) {
 
 	// Open file
 	file = fopen(filename, "rb");
-	if (!file)
-	{
+	if (!file) {
 		fprintf(stderr, "Unable to open file %s", filename);
 	}
 
@@ -34,8 +33,7 @@ void read_file(CPU* cpu, char *filename) {
 
 	// Allocate memory
 	buffer=(uint8_t *)malloc(fileLen+1);
-	if (!buffer)
-	{
+	if (!buffer) {
 		fprintf(stderr, "Memory error!");
         fclose(file);
 	}
@@ -45,11 +43,11 @@ void read_file(CPU* cpu, char *filename) {
 	fclose(file);
 
     // Print file contents in hex
-    // for (int i=0; i<fileLen; i+=2) {
-    //     if (i%16==0) printf("\n%.8x: ", i);
-    //     printf("%02x%02x ", *(buffer+i), *(buffer+i+1));
-    // }
-    // printf("\n");
+    for (int i=0; i<fileLen; i+=2) {
+        if (i%16 == 0) printf("\n%.8x: ", i);
+        printf("%02x%02x ", *(buffer+i), *(buffer+i+1));
+    }
+    printf("\n");
 
     // copy the bin executable to dram
     memcpy(cpu->bus.dram.mem, buffer, fileLen*sizeof(uint8_t));
@@ -71,14 +69,17 @@ int main(int argc, char* argv[]) {
 
     // cpu loop
     while (1) {
+        // inst length
+        uint8_t *inst_length = 0;
+
         // fetch
-        uint32_t inst = cpu_fetch(&cpu);
+        uint64_t inst = cpu_fetch(&cpu, inst_length);
 
         // Increment the program counter
-        cpu.pc += 4;
+        cpu.pc += *inst_length;
 
         // execute
-        if (!cpu_execute(&cpu, inst))
+        if (!cpu_execute(&cpu, inst, *inst_length))
             break;
 
         // dump registers
@@ -87,6 +88,5 @@ int main(int argc, char* argv[]) {
         if(cpu.pc == 0)
             break;
     }
-    /*dump_registers(&cpu);*/
     return 0;
 }

@@ -1,4 +1,5 @@
 #include "../includes/dram.h"
+#include <stdio.h>
 
 uint64_t dram_load_8(DRAM* dram, uint64_t addr){
     return (uint64_t) dram->mem[addr - DRAM_BASE];
@@ -12,7 +13,7 @@ uint64_t dram_load_16(DRAM* dram, uint64_t addr){
 uint64_t dram_load_32(DRAM* dram, uint64_t addr){
     return (uint64_t) dram->mem[addr-DRAM_BASE]
         |  (uint64_t) dram->mem[addr-DRAM_BASE + 1] << 8
-        |  (uint64_t) dram->mem[addr-DRAM_BASE + 2] << 16 
+        |  (uint64_t) dram->mem[addr-DRAM_BASE + 2] << 16
         |  (uint64_t) dram->mem[addr-DRAM_BASE + 3] << 24;
 }
 
@@ -33,7 +34,10 @@ uint64_t dram_load(DRAM* dram, uint64_t addr, uint64_t size) {
         case 16: return dram_load_16(dram, addr); break;
         case 32: return dram_load_32(dram, addr); break;
         case 64: return dram_load_64(dram, addr); break;
-        default: ;
+        default: {
+            fprintf(stderr, "[-] ERROR-> dram load error!\n");
+            break;
+        }
     }
     return 1;
 }
@@ -71,6 +75,9 @@ void dram_store(DRAM* dram, uint64_t addr, uint64_t size, uint64_t value) {
         case 16: dram_store_16(dram, addr, value); break;
         case 32: dram_store_32(dram, addr, value); break;
         case 64: dram_store_64(dram, addr, value); break;
-        default: ;
+        default: {
+            fprintf(stderr, "[-] ERROR-> dram store error!\n");
+            break;
+        }
     }
 }

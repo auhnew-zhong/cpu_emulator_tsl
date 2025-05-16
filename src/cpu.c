@@ -16,12 +16,35 @@ void print_op(char* s) {
 
 void cpu_init(CPU *cpu) {
     cpu->regs[0] = 0x00;                    // register R0 hardwired to 0
-    cpu->regs[2] = DRAM_BASE + DRAM_SIZE;   // Set stack pointer
     cpu->pc      = DRAM_BASE;               // Set program counter to the base address
 }
 
-uint32_t cpu_fetch(CPU *cpu) {
-    uint32_t inst = bus_load(&(cpu->bus), cpu->pc, 32);
+uint8_t determine_instruction_length(uint8_t first_byte, uint8_t second_byte) {
+    // 从高字节（第二个字节）获取操作码（高4位）
+    uint8_t opcode = (second_byte >> 4) & 0x0F;
+    if (opcode == trigger_pos || opcode == jmp || opcode == jmpc || opcode == bl) {
+        return 2;
+    }
+
+    // 检查低字节（第一个字节）的操作码（高4位）
+    opcode = (first_byte >> 4) & 0x0F;
+    if (opcode == trigger || opcode == ret || opcode == nop) {
+        return 1;
+    }
+
+    fprintf(stderr, "[-] ERROR-> opcode error!\n");
+
+    return 1;  // 默认1字节
+}
+
+uint8_t getInstLength(CPU *cpu) {
+    uint16_t opcode_byte = bus_load(&(cpu->bus), cpu->pc, 16);
+    return determine_instruction_length(opcode_byte & 0xFF, opcode_byte >> 8 & 0xFF);
+}
+
+uint64_t cpu_fetch(CPU *cpu, uint8_t *inst_length) {
+    *inst_length = getInstLength(cpu);
+    uint64_t inst = bus_load(&(cpu->bus), cpu->pc, *inst_length * 8);
     return inst;
 }
 
@@ -109,40 +132,82 @@ void exec_AND(CPU* cpu, uint32_t inst) {
 //=====================================================================================
 //   Cpu Execution root function
 //=====================================================================================
-int cpu_execute(CPU *cpu, uint32_t inst) {
-    int opcode = inst & 0x7f;           // opcode in bits 6..0
-    int funct3 = (inst >> 12) & 0x7;    // funct3 in bits 14..12
-    int funct7 = (inst >> 25) & 0x7f;   // funct7 in bits 31..25
+int cpu_execute(CPU *cpu, uint64_t inst, uint8_t inst_length) {
 
-    cpu->regs[0] = 0;                   // x0 hardwired to 0 at each cycle
-
-    /*printf("%s\n%#.8x -> Inst: %#.8x <OpCode: %#.2x, funct3:%#x, funct7:%#x> %s",*/
-            /*ANSI_YELLOW, cpu->pc-4, inst, opcode, funct3, funct7, ANSI_RESET); // DEBUG*/
+    cpu->regs[0] = 0; // x0 hardwired to 0 at each cycle
     printf("%s\n%#.8x -> %s", ANSI_YELLOW, cpu->pc-4, ANSI_RESET); // DEBUG
 
-    switch (opcode) {
-        case R_TYPE:  
-            switch (funct3) {
-                case OR:   exec_OR(cpu, inst); break;
-                case AND:  exec_AND(cpu, inst); break;
-                default:
-                    fprintf(stderr, 
-                            "[-] ERROR-> opcode:0x%x, funct3:0x%x, funct7:0x%x\n"
-                            , opcode, funct3, funct7);
-                    return 0;
-            } break;
-
-        case 0x00:
-            return 0;
-
-        default:
-            fprintf(stderr, 
-                    "[-] ERROR-> opcode:0x%x, funct3:0x%x, funct3:0x%x\n"
-                    , opcode, funct3, funct7);
-            return 0;
-            /*exit(1);*/
+    if (inst_length == 1) {
+        uint16_t inst_8 = inst & 0xFF;  // 小端序：低8位为单字节指令
+        uint8_t opcode = (inst >> 4) & 0x0F;
+        switch (opcode) {
+            case trigger:
+                // TRIGGER指令逻辑（待补充）
+                break;
+            case ret:
+                // RET指令逻辑（待补充）
+                break;
+            case nop:
+                // NOP指令：无操作，保持寄存器和PC不变
+                break;
+            default: {
+                fprintf(stderr, "[-] ERROR-> opcode:0x%x\n", opcode);
+                break;
+            }
+        }
+    } else if (inst_length == 2) {
+        uint16_t inst_16 = inst & 0xFFFF;  // 小端序：低16位为双字节指令
+        uint8_t opcode = (inst_16 >> 12) & 0x0F;  // 高字节的高4位（小端序中高字节是inst_16的高8位）
+        switch (opcode) {
+            case 0x04: {  // TRIGGER_POS
+                uint8_t imm = (inst_16 >> 5) & 0x7F;
+                // 执行TRIGGER_POS逻辑（待补充）
+                break;
+            }
+            case 0x05: {  // JMP
+                int16_t offset = (inst_16 >> 4) & 0xFF;
+                if (offset & 0x80) offset -= 0x100;  // 符号扩展
+                cpu->pc += offset * inst_length;  // 示例：更新PC（需根据实际指令语义调整）
+                break;
+            }
+            case 0x06: {  // JMPC（符号扩展偏移+条件）
+                int16_t offset = (inst >> 4) & 0xFF;
+                if (offset & 0x80) offset -= 0x100;
+                uint8_t cond = (inst >> 3) & 0x01;
+                break;
+            }
+            case 0x09: {  // BL（符号扩展偏移）
+                int16_t offset = (inst >> 2) & 0x3FF;
+                if (offset & 0x200) offset -= 0x400;  // 符号扩展
+                break;
+            }
+            default: {
+                fprintf(stderr, "[-] ERROR-> opcode:0x%x\n", opcode);
+                break;
+            }
+        }
+    } else if (inst_length == 4) {
+        uint32_t inst_32 = inst & 0xFFFFFFFF;  // 小端序：低32位为四字节指令
+        uint8_t opcode = (inst_32 >> 20) & 0x1F;  // 从32位指令中提取操作码（根据实际指令集调整位移）
+        switch (opcode) {
+            // TODO: 根据实际指令集补充具体操作码处理逻辑（如ADD/SUB等）
+            default: {
+                fprintf(stderr, "[-] ERROR-> 4-byte opcode:0x%x\n", opcode);
+                break;
+            }
+        }
+    } else if (inst_length == 8) {
+        uint64_t inst_64 = inst;  // 小端序：8字节指令已完整存储在inst中
+        uint8_t opcode = (inst_64 >> 32) & 0x1F;  // 从64位指令中提取操作码（根据实际指令集调整位移）
+        switch (opcode) {
+            // TODO: 根据实际指令集补充具体操作码处理逻辑（如LDB/STB等）
+            default: {
+                fprintf(stderr, "[-] ERROR-> 8-byte opcode:0x%x\n", opcode);
+                break;
+            }
+        }
     }
-    return 1;
+    return 1;  // 明确返回执行状态（1表示正常，0表示异常）
 }
 
 void dump_registers(CPU *cpu) {
