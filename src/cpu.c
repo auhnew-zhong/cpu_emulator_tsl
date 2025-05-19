@@ -80,7 +80,7 @@ uint64_t rs2(uint32_t inst) {
 //=====================================================================================
 
 void exec_TRIGGER(CPU* cpu, uint8_t inst) {
-    print_op("trigger_pos");
+    print_op("trigger\n");
 }
 
 void exec_RET(CPU* cpu, uint8_t inst) {
