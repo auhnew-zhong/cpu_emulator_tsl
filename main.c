@@ -70,16 +70,13 @@ int main(int argc, char* argv[]) {
     // cpu loop
     while (1) {
         // inst length
-        uint8_t *inst_length = 0;
+        uint8_t inst_length;
 
         // fetch
-        uint64_t inst = cpu_fetch(&cpu, inst_length);
-
-        // Increment the program counter
-        cpu.pc += *inst_length;
+        uint64_t inst = cpu_fetch(&cpu, &inst_length);
 
         // execute
-        if (!cpu_execute(&cpu, inst, *inst_length))
+        if (!cpu_execute(&cpu, inst, inst_length))
             break;
 
         // dump registers
