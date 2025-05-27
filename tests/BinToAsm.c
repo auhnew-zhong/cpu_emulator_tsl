@@ -1,131 +1,204 @@
 #include <stdio.h>
-#include <stdlib.h>
 #include <stdint.h>
-#include <string.h>
+#include <stdlib.h>
 
-// 确定指令长度（1或2字节）
-uint8_t determine_instruction_length(uint8_t first_byte, uint8_t second_byte) {
-    if (second_byte == 0) {  // 模拟Python中second_byte为None的情况（用0表示无）
+// 获取指令长度，根据操作码返回对应的字节数
+// 1字节: TRIGGER, RET, NOP
+// 2字节: TRIGGER_POS, JMP, BL
+// 4字节: JMPC, BIT_OP, LOAD
+// 8字节: MOV
+// 其他: 返回0，表示未知或不支持
+int get_inst_size(uint8_t opcode) {
+    if (opcode == 0x03 || opcode == 0x08 || opcode == 0x0A)
         return 1;
-    }
-
-    // 从高字节（第二个字节）获取操作码（高4位）
-    uint8_t opcode = (second_byte >> 4) & 0x0F;
-    if (opcode == 0x04 || opcode == 0x05 || opcode == 0x06 || opcode == 0x09) {
+    else if (opcode == 0x04 || opcode == 0x05 || opcode == 0x09)
         return 2;
-    }
-
-    // 检查低字节（第一个字节）的操作码（高4位）
-    opcode = (first_byte >> 4) & 0x0F;
-    if (opcode == 0x03 || opcode == 0x08 || opcode == 0x0A) {
-        return 1;
-    }
-
-    return 1;  // 默认1字节
+    else if (opcode == 0x0 || opcode == 0x1 || opcode == 0xD)
+        return 4;
+    else if (opcode == 0x7)
+        return 8;
+    else
+        return 0;
 }
 
-// 解码指令（返回静态缓冲区字符串）
-const char* decode_instruction(const uint8_t* instruction, uint8_t length) {
-    static char buffer[64] = {0};  // 静态缓冲区存储结果
-
-    if (length == 1) {
-        uint8_t opcode = (instruction[0] >> 4) & 0x0F;
-        switch (opcode) {
-            case 0x03: strcpy(buffer, "TRIGGER"); break;
-            case 0x08: strcpy(buffer, "RET"); break;
-            case 0x0A: strcpy(buffer, "NOP"); break;
-            default: strcpy(buffer, "UNKNOWN"); break;
-        }
-    } else {
-        uint16_t inst = (instruction[1] << 8) | instruction[0];  // 小端序组合双字节
-        uint8_t opcode = (instruction[1] >> 4) & 0x0F;
-
-        switch (opcode) {
-            case 0x04: {  // TRIGGER_POS
-                uint8_t imm = (inst >> 5) & 0x7F;
-                snprintf(buffer, sizeof(buffer), "TRIGGER_POS %d", imm);
-                break;
-            }
-            case 0x05: {  // JMP（符号扩展偏移）
-                int16_t offset = (inst >> 4) & 0xFF;
-                if (offset & 0x80) offset -= 0x100;  // 符号扩展
-                snprintf(buffer, sizeof(buffer), "JMP %d", offset);
-                break;
-            }
-            case 0x06: {  // JMPC（符号扩展偏移+条件）
-                int16_t offset = (inst >> 4) & 0xFF;
-                if (offset & 0x80) offset -= 0x100;
-                uint8_t cond = (inst >> 3) & 0x01;
-                snprintf(buffer, sizeof(buffer), "JMPC %d, %d", offset, cond);
-                break;
-            }
-            case 0x09: {  // BL（符号扩展偏移）
-                int16_t offset = (inst >> 2) & 0x3FF;
-                if (offset & 0x200) offset -= 0x400;  // 符号扩展
-                snprintf(buffer, sizeof(buffer), "BL %d", offset);
-                break;
-            }
-            default: strcpy(buffer, "UNKNOWN"); break;
-        }
+// 解码1字节指令
+const char* decode_one_byte_inst(uint8_t byte, char* buf, size_t buflen) {
+    if ((byte & 0xF) != 0)
+        return "UNKNOWN";
+    uint8_t opcode = (byte >> 4) & 0xF;
+    switch (opcode) {
+        case 0x03: return "TRIGGER";
+        case 0x08: return "RET";
+        case 0x0A: return "NOP";
+        default:   return "UNKNOWN";
     }
-    return buffer;
 }
 
-// 分析二进制文件
+// 解码TRIGGER_POS指令（2字节）
+const char* decode_trigger_pos(uint16_t inst, char* buf, size_t buflen) {
+    if ((inst & 0x1F) != 0)
+        return "UNKNOWN";
+    uint8_t imm = (inst >> 5) & 0x7F;
+    snprintf(buf, buflen, "TRIGGER_POS %u", imm);
+    return buf;
+}
+
+// 解码JMP指令（2字节）
+const char* decode_jmp(uint16_t inst, char* buf, size_t buflen) {
+    if ((inst & 0xF) != 0)
+        return "UNKNOWN";
+    int8_t offset = (inst >> 4) & 0xFF;
+    // 处理有符号数
+    if (offset & 0x80)
+        offset = -(256 - offset);
+    snprintf(buf, buflen, "JMP %d", offset);
+    return buf;
+}
+
+// 解码BL指令（2字节）
+const char* decode_bl(uint16_t inst, char* buf, size_t buflen) {
+    if ((inst & 0x3) != 0)
+        return "UNKNOWN";
+    int16_t offset = (inst >> 2) & 0x3FF;
+    if (offset & 0x200)
+        offset = -(1024 - offset);
+    snprintf(buf, buflen, "BL %d", offset);
+    return buf;
+}
+
+// 解码2字节指令
+const char* decode_two_byte_inst(const uint8_t* bytes, char* buf, size_t buflen) {
+    uint16_t inst = (bytes[0] << 8) | bytes[1]; // 大端序
+    uint8_t opcode = (bytes[0] >> 4) & 0xF;
+    switch (opcode) {
+        case 0x04: return decode_trigger_pos(inst, buf, buflen);
+        case 0x05: return decode_jmp(inst, buf, buflen);
+        case 0x09: return decode_bl(inst, buf, buflen);
+        default:   return "UNKNOWN";
+    }
+}
+
+// 解码JMPC指令（4字节）
+const char* decode_jmpc(uint32_t inst, char* buf, size_t buflen) {
+    uint32_t func = (inst >> 24) & 0xF;
+    uint32_t src1 = (inst >> 20) & 0xF;
+    uint32_t src2 = (inst >> 16) & 0xF;
+    uint32_t addr = (inst >> 8) & 0xFF;
+    snprintf(buf, buflen, "JMPC func=%u r%u r%u addr=%u", func, src1, src2, addr);
+    return buf;
+}
+
+// 解码BIT_OP指令（4字节）
+const char* decode_bit_op(uint32_t inst, char* buf, size_t buflen) {
+    uint32_t func = (inst >> 26) & 0x3;
+    uint32_t dst = (inst >> 22) & 0xF;
+    uint32_t src1 = (inst >> 18) & 0xF;
+    uint32_t src2 = (inst >> 14) & 0xF;
+    snprintf(buf, buflen, "BIT_OP r%u r%u r%u func=%u", dst, src1, src2, func);
+    return buf;
+}
+
+// 解码LOAD指令（4字节）
+const char* decode_load(uint32_t inst, char* buf, size_t buflen) {
+    uint32_t dst = (inst >> 24) & 0xF;
+    uint32_t addr = inst & 0xFFFFFF;
+    snprintf(buf, buflen, "LOAD r%u %u", dst, addr);
+    return buf;
+}
+
+// 解码4字节指令
+const char* decode_four_byte_inst(const uint8_t* bytes, char* buf, size_t buflen) {
+    uint32_t inst = (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3];
+    uint8_t opcode = (bytes[0] >> 4) & 0xF;
+    switch (opcode) {
+        case 0x0: return decode_jmpc(inst, buf, buflen);
+        case 0x1: return decode_bit_op(inst, buf, buflen);
+        case 0xD: return decode_load(inst, buf, buflen);
+        default:  return "UNKNOWN";
+    }
+}
+
+// 解码MOV指令（8字节）
+const char* decode_mov(uint64_t inst, char* buf, size_t buflen) {
+    uint32_t dst = (inst >> 56) & 0xF;
+    uint32_t imm = (inst >> 24) & 0xFFFFFFFF;
+    snprintf(buf, buflen, "MOV r%u %u", dst, imm);
+    return buf;
+}
+
+// 解码8字节指令
+const char* decode_eight_byte_inst(const uint8_t* bytes, char* buf, size_t buflen) {
+    uint64_t inst = 0;
+    for (int i = 0; i < 8; ++i)
+        inst = (inst << 8) | bytes[i];
+    uint8_t opcode = (bytes[0] >> 4) & 0xF;
+    if (opcode == 0x7)
+        return decode_mov(inst, buf, buflen);
+    else
+        return "UNKNOWN";
+}
+
+// 主分析函数，逐条读取二进制文件并反汇编
 void analyze_binary(const char* filename) {
     FILE* f = fopen(filename, "rb");
     if (!f) {
-        perror("Error opening file");
+        fprintf(stderr, "无法打开文件: %s\n", filename);
         return;
     }
-
-    // 获取文件大小
+    // 读取文件到内存
     fseek(f, 0, SEEK_END);
-    long file_size = ftell(f);
+    long filesize = ftell(f);
     fseek(f, 0, SEEK_SET);
-
-    // 读取文件内容到缓冲区
-    uint8_t* data = (uint8_t*)malloc(file_size);
+    uint8_t* data = (uint8_t*)malloc(filesize);
     if (!data) {
-        perror("Memory allocation failed");
+        fprintf(stderr, "内存分配失败\n");
         fclose(f);
         return;
     }
-    fread(data, 1, file_size, f);
+    fread(data, 1, filesize, f);
     fclose(f);
 
-    // 遍历分析指令
-    size_t pos = 0;
-    while (pos < file_size) {
+    long pos = 0;
+    char buf[64];
+    while (pos < filesize) {
         uint8_t first_byte = data[pos];
-        uint8_t second_byte = (pos + 1 < file_size) ? data[pos + 1] : 0;
-
-        uint8_t inst_length = determine_instruction_length(first_byte, second_byte);
-        if (pos + inst_length > file_size) break;
-
-        const uint8_t* instruction = &data[pos];
-        const char* inst_name = decode_instruction(instruction, inst_length);
-
-        // 格式化输出（类似Python版本）
-        printf("Offset: %04zx | ", pos);
-        if (inst_length == 2) {
-            printf("%02x %02x | %s\n", instruction[1], instruction[0], inst_name);
-        } else {
-            printf("%02x | %s\n", instruction[0], inst_name);
+        uint8_t opcode = (first_byte >> 4) & 0xF;
+        int inst_size = get_inst_size(opcode);
+        // 如果指令长度未知或剩余字节不足，按未知处理，跳过1字节
+        if (inst_size == 0 || pos + inst_size > filesize) {
+            printf("Offset: %04lx | %02x | UNKNOWN\n", pos, first_byte);
+            pos += 1;
+            continue;
         }
-
-        pos += inst_length;
+        const uint8_t* inst_bytes = data + pos;
+        const char* asm_str = NULL;
+        // 根据指令长度调用对应解码函数
+        if (inst_size == 1) {
+            asm_str = decode_one_byte_inst(inst_bytes[0], buf, sizeof(buf));
+            printf("Offset: %04lx | %02x | %s\n", pos, inst_bytes[0], asm_str);
+        } else if (inst_size == 2) {
+            asm_str = decode_two_byte_inst(inst_bytes, buf, sizeof(buf));
+            printf("Offset: %04lx | %02x %02x | %s\n", pos, inst_bytes[0], inst_bytes[1], asm_str);
+        } else if (inst_size == 4) {
+            asm_str = decode_four_byte_inst(inst_bytes, buf, sizeof(buf));
+            printf("Offset: %04lx | %02x %02x %02x %02x | %s\n", pos, inst_bytes[0], inst_bytes[1], inst_bytes[2], inst_bytes[3], asm_str);
+        } else if (inst_size == 8) {
+            asm_str = decode_eight_byte_inst(inst_bytes, buf, sizeof(buf));
+            printf("Offset: %04lx | %02x %02x %02x %02x %02x %02x %02x %02x | %s\n", pos,
+                inst_bytes[0], inst_bytes[1], inst_bytes[2], inst_bytes[3],
+                inst_bytes[4], inst_bytes[5], inst_bytes[6], inst_bytes[7], asm_str);
+        }
+        pos += inst_size;
     }
-
     free(data);
 }
 
-// 主函数处理命令行参数
+// 程序入口，命令行参数为二进制文件名
 int main(int argc, char* argv[]) {
-    if (argc != 2) {
+    if (argc > 1) {
+        analyze_binary(argv[1]);
+    } else {
         printf("Usage: %s <binary_file>\n", argv[0]);
-        return 1;
     }
-    analyze_binary(argv[1]);
     return 0;
 }

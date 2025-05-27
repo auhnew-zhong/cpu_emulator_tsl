@@ -11,7 +11,7 @@
 // 总内存为94.5M + 360M = 454.5M bit = 56.8M Byte
 
 typedef struct CPU {
-    uint32_t regs[24];          // 24 32-bit registers (R0-R23)
+    uint32_t regs[16];          // 16 32-bit registers (R0-R15)
     uint32_t pc;                // 32-bit program counter
     struct BUS bus;             // CPU connected to BUS
 } CPU;

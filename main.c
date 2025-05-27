@@ -82,7 +82,7 @@ int main(int argc, char* argv[]) {
         // dump registers
         dump_registers(&cpu);
 
-        if(cpu.pc == 0)
+        if (cpu.pc == 0)
             break;
     }
     return 0;

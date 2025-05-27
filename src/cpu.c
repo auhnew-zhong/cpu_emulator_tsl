@@ -1,18 +1,52 @@
+#include <stdint.h>
 #include <stdio.h>
+#include <assert.h>
 #include "../includes/cpu.h"
 #include "../includes/opcodes.h"
+
 
 #define ANSI_YELLOW  "\x1b[33m"
 #define ANSI_BLUE    "\x1b[31m"
 #define ANSI_RESET   "\x1b[0m"
 
-#define ADDR_MISALIGNED(addr) (addr & 0x3)
+//=====================================================================================
+//   Signal table
+//=====================================================================================
 
+// 信号表结构体
+struct signal_entry {
+    uint32_t addr;
+    uint32_t value;
+};
+
+// 示例信号表，可以根据实际需求扩展
+struct signal_entry signal_table[] = {
+    {1024, 0x11f1},
+    {2048, 0x22a2},
+    {4096, 0x33b3},
+    {8192, 0x44c4},
+};
+
+// 信号表大小
+const int signal_table_size = sizeof(signal_table) / sizeof(signal_table[0]);
+
+// 根据addr查找信号值，找不到返回0
+uint32_t get_signal_value(uint32_t addr) {
+    for (int i = 0; i < signal_table_size; ++i) {
+        if (signal_table[i].addr == addr)
+            return signal_table[i].value;
+    }
+    return 0;
+}
 
 // print operation for DEBUG
 void print_op(char* s) {
     printf("%s%s%s", ANSI_BLUE, s, ANSI_RESET);
 }
+
+//=====================================================================================
+//   CPU Initialization
+//=====================================================================================
 
 void cpu_init(CPU *cpu) {
     cpu->regs[0] = 0x00;                    // register R0 hardwired to 0
@@ -20,36 +54,50 @@ void cpu_init(CPU *cpu) {
     cpu->pc      = DRAM_BASE;               // Set program counter to the base address
 }
 
-uint8_t determine_instruction_length(uint8_t first_byte, uint8_t second_byte) {
-    // 从高字节（第二个字节）获取操作码（高4位）
-    uint8_t opcode = (second_byte >> 4) & 0x0F;
-    if (opcode == trigger_pos || opcode == jmp || opcode == jmpc || opcode == bl) {
-        return 2;
-    }
-
-    // 检查低字节（第一个字节）的操作码（高4位）
-    opcode = (first_byte >> 4) & 0x0F;
-    if (opcode == trigger || opcode == ret || opcode == nop) {
+// 获取指令长度，根据操作码返回对应的字节数
+// 1字节: TRIGGER, RET, NOP
+// 2字节: TRIGGER_POS, JMP, BL
+// 4字节: JMPC, BIT_OP, LOAD
+// 8字节: MOV
+// 其他: 返回0，表示未知或不支持
+uint8_t get_inst_size(uint8_t opcode) {
+    if (opcode == trigger || opcode == ret || opcode == nop)
         return 1;
+    else if (opcode == trigger_pos || opcode == jmp || opcode == bl)
+        return 2;
+    else if (opcode == jmpc || opcode == bit_op || opcode == load)
+        return 4;
+    else if (opcode == mov)
+        return 8;
+    else {
+        assert(0);
+        return 0;
     }
-
-    return 1;  // 默认1字节
 }
 
 uint8_t getInstLength(CPU *cpu) {
-    uint16_t opcode_byte = bus_load(&(cpu->bus), cpu->pc, 16);
-    return determine_instruction_length(opcode_byte & 0xFF, opcode_byte >> 8 & 0xFF);
+    uint8_t opcode_byte = bus_load(&(cpu->bus), cpu->pc, 8);
+    return get_inst_size(opcode_byte >> 4 & 0xF);
 }
+
+//=====================================================================================
+// Instruction Fetch
+//=====================================================================================
 
 uint64_t cpu_fetch(CPU *cpu, uint8_t *inst_length) {
     // 新增：检查指针有效性，避免解引用空指针
     if (inst_length == NULL) {
         fprintf(stderr, "[-] ERROR: cpu_fetch called with NULL inst_length pointer!\n");
+        assert(0);
         return 0;
     }
     *inst_length = getInstLength(cpu);
     return bus_load(&(cpu->bus), cpu->pc, *inst_length * 8);
 }
+
+//=====================================================================================
+// Assess Memory
+//=====================================================================================
 
 uint64_t cpu_load(CPU* cpu, uint64_t addr, uint64_t size) {
     return bus_load(&(cpu->bus), addr, size);
@@ -64,147 +112,270 @@ void cpu_store(CPU* cpu, uint64_t addr, uint64_t size, uint64_t value) {
 //=====================================================================================
 
 uint64_t rd(uint32_t inst) {
-    return (inst >> 7) & 0x1f;    // rd in bits 11..7
+    return 0;
 }
 
 uint64_t rs1(uint32_t inst) {
-    return (inst >> 15) & 0x1f;   // rs1 in bits 19..15
+    return 0;
 }
 
 uint64_t rs2(uint32_t inst) {
-    return (inst >> 20) & 0x1f;   // rs2 in bits 24..20
+    return 0;
 }
 
 //=====================================================================================
-//   Instruction Execution Functions
+//   8BYTE Instruction Execution Functions
 //=====================================================================================
 
-void exec_TRIGGER(CPU* cpu, uint8_t inst) {
-    print_op("trigger\n");
+void exec_MOV(CPU* cpu, uint64_t inst) {
+    uint8_t dst_reg = (inst >> 56) & 0xF;
+    uint32_t imm = (inst >> 24) & 0xFFFFFFFF;
+    printf("%smov r%u %u%s\n", ANSI_BLUE, dst_reg, imm, ANSI_RESET);
+    // 实际MOV操作可在此实现
+    cpu->regs[dst_reg] = imm;
 }
 
-void exec_RET(CPU* cpu, uint8_t inst) {
-    cpu->pc = cpu->regs[15];
-    cpu->regs[15] = 0;
-    print_op("ret\n");
+int decode_eight_byte_inst(CPU* cpu, uint64_t inst) {
+    uint64_t inst_64 = inst;
+    uint8_t opcode = (inst_64 >> 60) & 0xF;
+    switch (opcode) {
+        case mov: {  // MOV立即数
+            exec_MOV(cpu, inst_64);
+            break;
+        }
+        default: {
+            fprintf(stderr, "[-] ERROR-> 8-byte opcode:0x%x\n", opcode);
+            assert(0);
+            return 0;
+        }
+    }
+    return 1;
 }
 
-void exec_NOP(CPU* cpu, uint8_t inst) {
-    print_op("nop\n");
+//=====================================================================================
+//   4BYTE Instruction Execution Functions
+//=====================================================================================
+
+void exec_JMPC(CPU* cpu, uint32_t inst) {
+    uint32_t func = (inst >> 24) & 0xF;
+    uint32_t src1_reg = (inst >> 20) & 0xF;
+    uint32_t src2_reg = (inst >> 16) & 0xF;
+    uint32_t addr = (inst >> 8) & 0xFF;
+    printf("%sjmpc func=%u r%u r%u addr=%u%s\n", ANSI_BLUE, func, src1_reg, src2_reg, addr, ANSI_RESET);
+    // 实际JMPC操作可在此实现
+    uint32_t src1 = cpu->regs[src1_reg];
+    uint32_t src2 = cpu->regs[src2_reg];
+    switch (func) {
+        case 0x0 : {
+            if (src1 == src2) {
+                cpu->regs[15] = cpu->pc;  // 保存返回地址到R15
+                cpu->pc += addr;
+            }
+            break;
+        }
+        case 0x1 : {
+            if (src1 != src2) {
+                cpu->regs[15] = cpu->pc;  // 保存返回地址到R15
+                cpu->pc += addr;
+            }
+            break;
+        }
+        case 0x2 : {
+            if (src1 > src2) {
+                cpu->regs[15] = cpu->pc;  // 保存返回地址到R15
+                cpu->pc += addr;
+            }
+            break;
+        }
+        case 0x3 : {
+            if (src1 < src2) {
+                cpu->regs[15] = cpu->pc;  // 保存返回地址到R15
+                cpu->pc += addr;
+            }
+            break;
+        }
+        case 0x4 : {
+            if (src1 >= src2) {
+                cpu->regs[15] = cpu->pc;  // 保存返回地址到R15
+                cpu->pc += addr;
+            }
+            break;
+        }
+        case 0x5 : {
+            if (src1 <= src2) {
+                cpu->regs[15] = cpu->pc;  // 保存返回地址到R15
+                cpu->pc += addr;
+            }
+            break;
+        }
+        case 0x6 :
+            // src1信号进行上升沿判断
+            break;
+        case 0x7 :
+            // src1信号进行下降沿判断
+            break;
+        default:
+            fprintf(stderr, "[-] ERROR-> exec_JMPC error!\n");
+            assert(0);
+    }
+    
 }
+
+void exec_BIT_OP(CPU* cpu, uint32_t inst) {
+    uint8_t func = (inst >> 26) & 0x3;
+    uint8_t dst_reg = (inst >> 22) & 0xF;
+    uint8_t src1_reg = (inst >> 18) & 0xF;
+    uint8_t src2_reg = (inst >> 14) & 0xF;
+    printf("%sbit_op r%u r%u r%u func=%u%s\n", ANSI_BLUE, dst_reg, src1_reg, src2_reg, func, ANSI_RESET);
+    // 实际BIT_OP操作可在此实现
+    uint32_t src1 = cpu->regs[src1_reg];
+    uint32_t src2 = cpu->regs[src2_reg];
+    switch (func) {
+        case 0x0 :
+            cpu->regs[dst_reg] = src1 & src2;
+            break;
+        case 0x1 :
+            cpu->regs[dst_reg] = src1 | src2;
+            break;
+        case 0x2 :
+            cpu->regs[dst_reg] = src1 ^ src2;
+            break;
+        default:
+            fprintf(stderr, "[-] ERROR-> exec_BIT_OP error!\n");
+            assert(0);
+            break;
+    }
+}
+
+void exec_LOAD(CPU* cpu, uint32_t inst) {
+    uint32_t dst = (inst >> 24) & 0xF;
+    uint32_t addr = inst & 0xFFFFFF;
+    printf("%sload r%u %u%s\n", ANSI_BLUE, dst, addr, ANSI_RESET);
+    // 实际LOAD操作可在此实现，获取信号变量值（可能拆分汇聚）
+    cpu->regs[dst] = get_signal_value(addr);
+    printf("Get signal var from addr signal[%u]!\n", addr);
+}
+
+int decode_four_byte_inst(CPU* cpu, uint64_t inst) {
+    uint32_t inst_32 = inst & 0xFFFFFFFF;
+    uint8_t opcode = (inst_32 >> 28) & 0xF;
+    switch (opcode) {
+        case 0x0: // JMPC
+            exec_JMPC(cpu, inst_32);
+            break;
+        case 0x1: // BIT_OP
+            exec_BIT_OP(cpu, inst_32);
+            break;
+        case 0xD: // LOAD
+            exec_LOAD(cpu, inst_32);
+            break;
+        default:
+            fprintf(stderr, "[-] ERROR-> 4-byte opcode:0x%x\n", opcode);
+            assert(0);
+            return 0;
+    }
+    return 1;
+}
+
+//=====================================================================================
+//   2BYTE Instruction Execution Functions
+//=====================================================================================
 
 void exec_TRIGGER_POS(CPU* cpu, uint16_t inst) {
+    // 立即数imm为[11:5]位
     uint8_t imm = (inst >> 5) & 0x7F;
-    printf("%s%s%d%s\n", ANSI_BLUE, "trigger_pos ", imm ,ANSI_RESET);
+    printf("%strigger_pos %u%s\n", ANSI_BLUE, imm, ANSI_RESET);
+    // 实际TRIGGER_POS操作可在此实现
+    printf("Trigger sample pos set %u!\n", imm);
 }
 
-void exec_BL(CPU* cpu, uint16_t inst, uint8_t inst_length) {
+void exec_BL(CPU* cpu, uint16_t inst) {
+    // offset为[11:2]，10位有符号
     int16_t offset = (inst >> 2) & 0x3FF;
-    cpu->regs[15] = cpu->pc;  // 保存返回地址到x15
-    cpu->pc += offset;  // 示例：更新PC（需根据实际指令语义调整）
-    printf("%s%s%d%s\n", ANSI_BLUE, "bl ", offset ,ANSI_RESET);
-}
-
-void exec_JMPC(CPU* cpu, uint16_t inst) {
-    int16_t offset = (inst >> 4) & 0xFF;
-    if (offset & 0x80) offset -= 0x100;  // 符号扩展
-    uint8_t cond = (inst >> 3) & 0x01;
-    if (cond) {  // 根据条件标志决定是否跳转
-        cpu->pc += offset;
-    }
-    printf("%s%s%d, %d%s\n", ANSI_BLUE, "jmpc ", offset, cond, ANSI_RESET);
+    if (offset & 0x200) offset = -(1024 - offset);
+    printf("%sbl %d%s\n", ANSI_BLUE, offset, ANSI_RESET);
+    // 实际BL操作可在此实现
+    cpu->regs[15] = cpu->pc;  // 保存返回地址到R15
+    cpu->pc += offset;
 }
 
 void exec_JMP(CPU* cpu, uint16_t inst) {
+    // offset为[11:4]，8位有符号
     int16_t offset = (inst >> 4) & 0xFF;
-    if (offset & 0x80) offset -= 0x100;  // 符号扩展
-    cpu->pc += offset;  // 示例：更新PC（需根据实际指令语义调整）
-    printf("%s%s%d%s\n", ANSI_BLUE, "jmp ", offset, ANSI_RESET);
+    if (offset & 0x80) offset = -(256 - offset);
+    printf("%sjmp %d%s\n", ANSI_BLUE, offset, ANSI_RESET);
+    // 实际JMP操作可在此实现
+    cpu->pc += offset;
 }
 
-//=====================================================================================
-//   Cpu Execution root function
-//=====================================================================================
-int cpu_execute(CPU *cpu, uint64_t inst, uint8_t inst_length) {
-
-    // 打印当前指令地址
-    printf("%s\n%#.8x -> %s", ANSI_YELLOW, cpu->pc, ANSI_RESET); // DEBUG
-
-    cpu->pc += inst_length; // update pc for next cpu cycle
-    cpu->regs[0] = 0; // R0 hardwired to 0 at each cycle
-
-    if (inst_length == 1) {
-        uint8_t inst_8 = inst & 0xFF;  // 小端序：低8位为单字节指令
-        uint8_t opcode = (inst >> 4) & 0x0F;
-        switch (opcode) {
-            case trigger: {
-                // TRIGGER指令：执行TRIGGER指令逻辑
-                exec_TRIGGER(cpu, inst_8);
-                break;
-            } 
-            case ret: {
-                // RET指令：从R15中读取返回地址并跳转
-                exec_RET(cpu, inst_8);
-                break;
-            }
-            case nop: {
-                // NOP指令：无操作，保持寄存器和PC不变
-                exec_NOP(cpu, inst_8);
-                break;
-            }
-            default: {
-                fprintf(stderr, "[-] ERROR-> 1-byte opcode:0x%x\n", opcode);
-                return 0;
-            }
-        }
-    } else if (inst_length == 2) {
-        uint16_t inst_16 = inst & 0xFFFF;  // 小端序：低16位为双字节指令
-        uint8_t opcode = (inst_16 >> 12) & 0x0F;  // 高字节的高4位（小端序中高字节是inst_16的高8位）
-        switch (opcode) {
-            case trigger_pos: {  // TRIGGER_POS（立即数偏移）
-                exec_TRIGGER_POS(cpu, inst_16);
-                break;
-            }
-            case jmp: {  // JMP（符号扩展偏移）
-                exec_JMP(cpu, inst_16);
-                break;
-            }
-            case jmpc: {  // JMPC（符号扩展偏移+条件）
-                exec_JMPC(cpu, inst_16);
-                break;
-            }
-            case bl: {  // BL（符号扩展偏移）
-                exec_BL(cpu, inst_16, inst_length);
-                break;
-            }
-            default: {
-                fprintf(stderr, "[-] ERROR-> 2-byte opcode:0x%x\n", opcode);
-                return 0;
-            }
-        }
-    } else if (inst_length == 4) {
-        uint32_t inst_32 = inst & 0xFFFFFFFF;  // 小端序：低32位为四字节指令
-        uint8_t opcode = (inst_32 >> 20) & 0x1F;  // 从32位指令中提取操作码（根据实际指令集调整位移）
-        switch (opcode) {
-            // TODO: 根据实际指令集补充具体操作码处理逻辑（如ADD/SUB等）
-            default: {
-                fprintf(stderr, "[-] ERROR-> 4-byte opcode:0x%x\n", opcode);
-                return 0;
-            }
-        }
-    } else if (inst_length == 8) {
-        uint64_t inst_64 = inst;  // 小端序：8字节指令已完整存储在inst中
-        uint8_t opcode = (inst_64 >> 32) & 0x1F;  // 从64位指令中提取操作码（根据实际指令集调整位移）
-        switch (opcode) {
-            // TODO: 根据实际指令集补充具体操作码处理逻辑（如LDB/STB等）
-            default: {
-                fprintf(stderr, "[-] ERROR-> 8-byte opcode:0x%x\n", opcode);
-                return 0;
-            }
+int decode_two_byte_inst(CPU* cpu, uint64_t inst) {
+    uint16_t inst_16 = inst & 0xFFFF;
+    uint8_t opcode = (inst_16 >> 12) & 0xF;
+    switch (opcode) {
+        case 0x04: // trigger_pos
+            exec_TRIGGER_POS(cpu, inst_16);
+            break;
+        case 0x05: // jmp
+            exec_JMP(cpu, inst_16);
+            break;
+        case 0x09: // bl
+            exec_BL(cpu, inst_16);
+            break;
+        default: {
+            fprintf(stderr, "[-] ERROR-> 2-byte opcode:0x%x\n", opcode);
+            assert(0);
+            return 0;
         }
     }
-    return 1;  // 明确返回执行状态（1表示正常，0表示异常）
+    return 1;
 }
+
+//=====================================================================================
+//   1BYTE Instruction Execution Functions
+//=====================================================================================
+
+void exec_TRIGGER(CPU* cpu, uint8_t inst) {
+    printf("%strigger%s\n", ANSI_BLUE, ANSI_RESET);
+    // 实际TRIGGER操作可在此实现
+    printf("Time stop! Start trigger signal sample!\n");
+}
+
+void exec_RET(CPU* cpu, uint8_t inst) {
+    printf("%sret%s\n", ANSI_BLUE, ANSI_RESET);
+    // 实际RET操作可在此实现
+    cpu->pc = cpu->regs[15];
+    cpu->regs[15] = 0;
+}
+
+void exec_NOP(CPU* cpu, uint8_t inst) {
+    printf("%snop%s\n", ANSI_BLUE, ANSI_RESET);
+}
+
+int decode_one_byte_inst(CPU* cpu, uint64_t inst) {
+    uint8_t inst_8 = inst & 0xFF;
+    uint8_t opcode = (inst_8 >> 4) & 0xF;
+    switch (opcode) {
+        case 0x03: // trigger
+            exec_TRIGGER(cpu, inst_8);
+            break;
+        case 0x08: // ret
+            exec_RET(cpu, inst_8);
+            break;
+        case 0x0A: // nop
+            exec_NOP(cpu, inst_8);
+            break;
+        default: {
+            fprintf(stderr, "[-] ERROR-> 1-byte opcode:0x%x\n", opcode);
+            assert(0);
+            return 0;
+        }
+    }
+    return 1;
+}
+
+//=====================================================================================
+//   Dump Register Info
+//=====================================================================================
 
 void dump_registers(CPU *cpu) {
     char* abi[] = { // Application Binary Interface registers
@@ -222,3 +393,29 @@ void dump_registers(CPU *cpu) {
     }
 }
 
+//=====================================================================================
+//   Cpu Execution root function
+//=====================================================================================
+
+int cpu_execute(CPU *cpu, uint64_t inst, uint8_t inst_length) {
+    // 打印当前指令地址
+    printf("%s\n%#.8x -> %s", ANSI_YELLOW, cpu->pc, ANSI_RESET); // DEBUG
+
+    cpu->pc += inst_length; // update pc for next cpu cycle
+    cpu->regs[0] = 0; // R0 hardwired to 0 at each cycle
+
+    if (inst_length == 1) {
+        return decode_one_byte_inst(cpu, inst);
+    } else if (inst_length == 2) {
+        return decode_two_byte_inst(cpu, inst);
+    } else if (inst_length == 4) {
+        return decode_four_byte_inst(cpu, inst);
+    } else if (inst_length == 8) {
+        return decode_eight_byte_inst(cpu, inst);
+    } else {
+        fprintf(stderr, "[-] ERROR-> inst_length:0x%x\n", inst_length);
+        assert(0);
+        return 0;
+    }
+    return 1;  // 明确返回执行状态（1表示正常，0表示异常）
+}

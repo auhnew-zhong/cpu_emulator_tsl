@@ -1,120 +1,189 @@
-# 导入必要的Python库
-import sys  # 系统相关功能，用于命令行参数
-import os   # 操作系统接口，用于文件操作
+import sys
 
-def determine_instruction_length(first_byte, second_byte=None):
-    """
-    根据指令字节确定指令长度
-    Args:
-        first_byte: 第一个字节（小端序中的低字节）
-        second_byte: 第二个字节（小端序中的高字节，包含操作码）
-    Returns:
-        instruction_length: 指令长度（1或2字节）
-    """
-    if second_byte is None:
-        return 1  # 如果没有第二个字节，只能是单字节指令
-        
-    # 从高字节（第二个字节）获取操作码
-    opcode = (second_byte >> 4) & 0xF
-    
-    # 2字节指令：TRIGGER_POS(0x04), JMP(0x05), JMPC(0x06), BL(0x09)
-    if opcode in [0x04, 0x05, 0x06, 0x09]:
-        return 2
-        
-    # 否则是单字节指令：TRIGGER(0x03), RET(0x08), NOP(0x0A)
-    # 检查第一个字节的操作码
-    opcode = (first_byte >> 4) & 0xF
+# 获取指令长度，根据操作码返回对应的字节数
+# 1字节: TRIGGER, RET, NOP
+# 2字节: TRIGGER_POS, JMP, BL
+# 4字节: JMPC, BIT_OP, LOAD
+# 8字节: MOV
+# 其他: 返回0，表示未知或不支持
+
+def get_inst_size(opcode):
     if opcode in [0x03, 0x08, 0x0A]:
         return 1
-        
-    return 1  # 默认返回1
-
-def decode_instruction(instruction):
-    """
-    解码指令
-    Args:
-        instruction: 完整的指令字节
-    Returns:
-        inst_name: 指令助记符
-    """
-    if len(instruction) == 1:
-        # 单字节指令
-        opcode = (instruction[0] >> 4) & 0xF
-        if opcode == 0x03:
-            return "TRIGGER"
-        elif opcode == 0x08:
-            return "RET"
-        elif opcode == 0x0A:
-            return "NOP"
+    elif opcode in [0x04, 0x05, 0x09]:
+        return 2
+    elif opcode in [0x0, 0x1, 0xD]:
+        return 4
+    elif opcode == 0x7:
+        return 8
     else:
-        # 双字节指令（小端序）
-        opcode = (instruction[1] >> 4) & 0xF  # 操作码在高字节的高4位
-        inst = (instruction[1] << 8) | instruction[0]
-        
-        if opcode == 0x04:  # TRIGGER_POS
-            imm = (inst >> 5) & 0x7F
-            return f"TRIGGER_POS {imm}"
-        elif opcode == 0x05:  # JMP
-            offset = (inst >> 4) & 0xFF
-            if offset & 0x80:
-                offset = -(256 - offset)
-            return f"JMP {offset}"
-        elif opcode == 0x06:  # JMPC
-            offset = (inst >> 4) & 0xFF
-            if offset & 0x80:
-                offset = -(256 - offset)
-            cond = (inst >> 3) & 0x1
-            return f"JMPC {offset}, {cond}"
-        elif opcode == 0x09:  # BL
-            offset = (inst >> 2) & 0x3FF
-            if offset & 0x200:
-                offset = -(1024 - offset)
-            return f"BL {offset}"
-    
-    return f"UNKNOWN"
+        return 0
+
+# 解码1字节指令
+# 只支持TRIGGER、RET、NOP，其他返回UNKNOWN
+
+def decode_one_byte_inst(byte):
+    if (byte & 0xF) != 0:
+        return "UNKNOWN"
+    opcode = (byte >> 4) & 0xF
+    if opcode == 0x03:
+        return "TRIGGER"
+    elif opcode == 0x08:
+        return "RET"
+    elif opcode == 0x0A:
+        return "NOP"
+    else:
+        return "UNKNOWN"
+
+# 解码TRIGGER_POS指令（2字节）
+# 低5位必须为0，否则非法
+# 立即数imm为[11:5]位
+
+def decode_trigger_pos(inst):
+    if (inst & 0x1F) != 0:
+        return "UNKNOWN"
+    imm = (inst >> 5) & 0x7F
+    return f"TRIGGER_POS {imm}"
+
+# 解码JMP指令（2字节）
+# 低4位必须为0，否则非法
+# offset为[11:4]，8位有符号
+
+def decode_jmp(inst):
+    if (inst & 0xF) != 0:
+        return "UNKNOWN"
+    offset = (inst >> 4) & 0xFF
+    # 处理有符号数
+    if offset & 0x80:
+        offset = -(256 - offset)
+    return f"JMP {offset}"
+
+# 解码BL指令（2字节）
+# 低2位必须为0，否则非法
+# offset为[11:2]，10位有符号
+
+def decode_bl(inst):
+    if (inst & 0x3) != 0:
+        return "UNKNOWN"
+    offset = (inst >> 2) & 0x3FF
+    # 处理有符号数
+    if offset & 0x200:
+        offset = -(1024 - offset)
+    return f"BL {offset}"
+
+# 解码2字节指令，根据高4位opcode分发
+
+def decode_two_byte_inst(bytes_):
+    inst = (bytes_[0] << 8) | bytes_[1]  # 大端序拼接
+    opcode = (bytes_[0] >> 4) & 0xF
+    if opcode == 0x04:
+        return decode_trigger_pos(inst)
+    elif opcode == 0x05:
+        return decode_jmp(inst)
+    elif opcode == 0x09:
+        return decode_bl(inst)
+    else:
+        return "UNKNOWN"
+
+# 解码JMPC指令（4字节）
+# func: [27-24], src1: [23-20], src2: [19-16], addr: [15-8]
+
+def decode_jmpc(inst):
+    func = (inst >> 24) & 0xF
+    src1 = (inst >> 20) & 0xF
+    src2 = (inst >> 16) & 0xF
+    addr = (inst >> 8) & 0xFF
+    return f"JMPC func={func} r{src1} r{src2} addr={addr}"
+
+# 解码BIT_OP指令（4字节）
+# func: [27-26], dst: [25-22], src1: [21-18], src2: [17-14]
+
+def decode_bit_op(inst):
+    func = (inst >> 26) & 0x3
+    dst = (inst >> 22) & 0xF
+    src1 = (inst >> 18) & 0xF
+    src2 = (inst >> 14) & 0xF
+    return f"BIT_OP r{dst} r{src1} r{src2} func={func}"
+
+# 解码LOAD指令（4字节）
+# dst: [27-24], addr: [23-0]
+
+def decode_load(inst):
+    dst = (inst >> 24) & 0xF
+    addr = inst & 0xFFFFFF
+    return f"LOAD r{dst} {addr}"
+
+# 解码4字节指令，根据高4位opcode分发
+
+def decode_four_byte_inst(bytes_):
+    inst = (bytes_[0] << 24) | (bytes_[1] << 16) | (bytes_[2] << 8) | bytes_[3]  # 大端序拼接
+    opcode = (bytes_[0] >> 4) & 0xF
+    if opcode == 0x0:
+        return decode_jmpc(inst)
+    elif opcode == 0x1:
+        return decode_bit_op(inst)
+    elif opcode == 0xD:
+        return decode_load(inst)
+    else:
+        return "UNKNOWN"
+
+# 解码MOV指令（8字节）
+# dst: [59-56], imm: [55-24]
+
+def decode_mov(inst):
+    dst = (inst >> 56) & 0xF
+    imm = (inst >> 24) & 0xFFFFFFFF
+    return f"MOV r{dst} {imm}"
+
+# 解码8字节指令，目前只支持MOV
+
+def decode_eight_byte_inst(bytes_):
+    inst = 0
+    for i in range(8):
+        inst = (inst << 8) | bytes_[i]  # 大端序拼接
+    opcode = (bytes_[0] >> 4) & 0xF
+    if opcode == 0x7:
+        return decode_mov(inst)
+    else:
+        return "UNKNOWN"
+
+# 主分析函数，逐条读取二进制文件并反汇编
+# 输出格式：偏移 | 原始字节 | 助记符
 
 def analyze_binary(filename):
-    """
-    分析TSL二进制文件
-    Args:
-        filename: 二进制文件名
-    """
     with open(filename, 'rb') as f:
         data = f.read()
-
     pos = 0
     while pos < len(data):
-        # 总是尝试读取两个字节
         first_byte = data[pos]
-        second_byte = data[pos + 1] if pos + 1 < len(data) else None
-
-        # 打印调试信息
-        # print(f"First byte: {first_byte:02x}")
-        # print(f"Second byte: {second_byte:02x}")
-
-        # 根据两个字节确定指令长度
-        inst_length = determine_instruction_length(first_byte, second_byte)
-
-        # 提取完整指令
-        if pos + inst_length <= len(data):
-            instruction = data[pos:pos+inst_length]
-
-            # 解码指令
-            inst_name = decode_instruction(instruction)
-
-            # 打印指令信息
-            print(f"Offset: {pos:04x} | ", end='')
-            if inst_length == 2:
-                print(f"{instruction[1]:02x} {instruction[0]:02x}", end='')
-            else:
-                print(f"{instruction[0]:02x}", end='')
-            print(f" | {inst_name}")
-
-            pos += inst_length
+        opcode = (first_byte >> 4) & 0xF
+        inst_size = get_inst_size(opcode)
+        # 如果指令长度未知或剩余字节不足，按未知处理，跳过1字节
+        if inst_size == 0 or pos + inst_size > len(data):
+            print(f"Offset: {pos:04x} | {first_byte:02x} | UNKNOWN")
+            pos += 1
+            continue
+        inst_bytes = data[pos:pos+inst_size]
+        # 根据指令长度调用对应解码函数
+        if inst_size == 1:
+            asm = decode_one_byte_inst(inst_bytes[0])
+            hex_str = f"{inst_bytes[0]:02x}"
+        elif inst_size == 2:
+            asm = decode_two_byte_inst(inst_bytes)
+            hex_str = f"{inst_bytes[0]:02x} {inst_bytes[1]:02x}"
+        elif inst_size == 4:
+            asm = decode_four_byte_inst(inst_bytes)
+            hex_str = " ".join(f"{b:02x}" for b in inst_bytes)
+        elif inst_size == 8:
+            asm = decode_eight_byte_inst(inst_bytes)
+            hex_str = " ".join(f"{b:02x}" for b in inst_bytes)
         else:
-            break
+            asm = "UNKNOWN"
+            hex_str = " ".join(f"{b:02x}" for b in inst_bytes)
+        print(f"Offset: {pos:04x} | {hex_str} | {asm}")
+        pos += inst_size
 
-# 主程序入口
+# 程序入口，命令行参数为二进制文件名
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         analyze_binary(sys.argv[1])

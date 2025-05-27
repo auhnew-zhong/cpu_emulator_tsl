@@ -1,0 +1,19 @@
+
+test_signal_var.elf:	file format elf32-tsl
+
+Disassembly of section .text:
+
+000110b4 <main>:
+   110b4: 47 80        	trigger_pos	60
+   110b6: 90 04        	bl	1
+   110b8: 80           	ret
+
+000110b9 <inst1>:
+   110b9: 76 00 00 00 0d 00 00 00      	mov %r6, 13
+   110c1: d7 00 04 00  	load %r7, 1024
+   110c5: 11 9d 80 00  	bit_op %r6, %r7, %r6, 0
+   110c9: 77 00 00 00 09 00 00 00      	mov %r7, 9
+   110d1: 03 77 00 00  	jcmp 3, %r7, %r7, 0
+   110d5: 50 00        	jmp	0
+   110d7: 30           	trigger
+   110d8: 80           	ret
