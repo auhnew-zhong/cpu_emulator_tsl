@@ -1,0 +1,14 @@
+Offset: 0000 | 46 40 | TRIGGER_POS 50
+Offset: 0002 | 90 04 | BL 1
+Offset: 0004 | 80 | RET
+Offset: 0005 | 70 00 00 00 09 00 00 00 | MOV r0 9
+Offset: 000d | d1 00 10 00 | LOAD r1 4096
+Offset: 0011 | 18 04 00 00 | BIT_OP r0 r1 r0 func=2
+Offset: 0015 | 71 00 00 00 0d 00 00 00 | MOV r1 13
+Offset: 001d | 03 01 13 00 | JMPC func=3 r0 r1 addr=19
+Offset: 0021 | 70 aa aa aa aa 00 00 00 | MOV r0 2863311530
+Offset: 0029 | d1 00 10 04 | LOAD r1 4100
+Offset: 002d | 00 10 02 00 | JMPC func=0 r1 r0 addr=2
+Offset: 0031 | 50 10 | JMP 1
+Offset: 0033 | 30 | TRIGGER
+Offset: 0034 | 80 | RET

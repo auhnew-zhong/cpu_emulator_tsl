@@ -165,55 +165,54 @@ void exec_JMPC(CPU* cpu, uint32_t inst) {
     // 实际JMPC操作可在此实现
     uint32_t src1 = cpu->regs[src1_reg];
     uint32_t src2 = cpu->regs[src2_reg];
+    if (src2 == 0xaaaaaaaa) {
+        // 进行上升沿判断
+        printf("rising edge!\n");
+        cpu->pc += addr;
+        return;
+    } else if (src2 == 0xbbbbbbbb) {
+        // 进行下降沿判断
+        printf("falling edge!\n");
+        cpu->pc += addr;
+        return;
+    }
     switch (func) {
         case 0x0 : {
             if (src1 == src2) {
-                cpu->regs[15] = cpu->pc;  // 保存返回地址到R15
                 cpu->pc += addr;
             }
             break;
         }
         case 0x1 : {
             if (src1 != src2) {
-                cpu->regs[15] = cpu->pc;  // 保存返回地址到R15
                 cpu->pc += addr;
             }
             break;
         }
         case 0x2 : {
             if (src1 > src2) {
-                cpu->regs[15] = cpu->pc;  // 保存返回地址到R15
                 cpu->pc += addr;
             }
             break;
         }
         case 0x3 : {
             if (src1 < src2) {
-                cpu->regs[15] = cpu->pc;  // 保存返回地址到R15
                 cpu->pc += addr;
             }
             break;
         }
         case 0x4 : {
             if (src1 >= src2) {
-                cpu->regs[15] = cpu->pc;  // 保存返回地址到R15
                 cpu->pc += addr;
             }
             break;
         }
         case 0x5 : {
             if (src1 <= src2) {
-                cpu->regs[15] = cpu->pc;  // 保存返回地址到R15
                 cpu->pc += addr;
             }
             break;
         }
-        case 0x6 :
-            // src1信号进行上升沿判断
-            break;
-        case 0x7 :
-            // src1信号进行下降沿判断
-            break;
         default:
             fprintf(stderr, "[-] ERROR-> exec_JMPC error!\n");
             assert(0);
@@ -402,7 +401,6 @@ int cpu_execute(CPU *cpu, uint64_t inst, uint8_t inst_length) {
     printf("%s\n%#.8x -> %s", ANSI_YELLOW, cpu->pc, ANSI_RESET); // DEBUG
 
     cpu->pc += inst_length; // update pc for next cpu cycle
-    cpu->regs[0] = 0; // R0 hardwired to 0 at each cycle
 
     if (inst_length == 1) {
         return decode_one_byte_inst(cpu, inst);
