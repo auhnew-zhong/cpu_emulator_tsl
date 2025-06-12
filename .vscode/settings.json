@@ -1,0 +1,5 @@
+{
+    "terminal.integrated.windowsUseConptyDll": true,
+    "terminal.integrated.smoothScrolling": true,
+    "terminal.integrated.sendKeybindingsToShell": true
+}

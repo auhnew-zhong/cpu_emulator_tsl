@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <assert.h>
+#include <stdbool.h>
 #include "../includes/cpu.h"
 #include "../includes/opcodes.h"
 
@@ -57,7 +58,7 @@ void cpu_init(CPU *cpu) {
 // 获取指令长度，根据操作码返回对应的字节数
 // 1字节: TRIGGER, RET, NOP
 // 2字节: TRIGGER_POS, JMP, BL
-// 4字节: JMPC, BIT_OP, LOAD
+// 4字节: JMPC(包含边沿检测), BIT_OP, LOAD
 // 8字节: MOV
 // 其他: 返回0，表示未知或不支持
 uint8_t get_inst_size(uint8_t opcode) {
@@ -162,62 +163,43 @@ void exec_JMPC(CPU* cpu, uint32_t inst) {
     uint32_t src2_reg = (inst >> 16) & 0xF;
     uint32_t addr = (inst >> 8) & 0xFF;
     printf("%sjmpc func=%u r%u r%u addr=%u%s\n", ANSI_BLUE, func, src1_reg, src2_reg, addr, ANSI_RESET);
-    // 实际JMPC操作可在此实现
+    
+    // 获取源操作数值
     uint32_t src1 = cpu->regs[src1_reg];
     uint32_t src2 = cpu->regs[src2_reg];
+    
+    // 特殊值检测 - 边沿触发判断
     if (src2 == 0xaaaaaaaa) {
-        // 进行上升沿判断
         printf("rising edge!\n");
         cpu->pc += addr;
         return;
     } else if (src2 == 0xbbbbbbbb) {
-        // 进行下降沿判断
         printf("falling edge!\n");
         cpu->pc += addr;
         return;
     }
+    
+    // 使用查找表优化条件判断
+    bool should_jump = false;
+    
+    // 根据func值确定比较结果
     switch (func) {
-        case 0x0 : {
-            if (src1 == src2) {
-                cpu->pc += addr;
-            }
-            break;
-        }
-        case 0x1 : {
-            if (src1 != src2) {
-                cpu->pc += addr;
-            }
-            break;
-        }
-        case 0x2 : {
-            if (src1 > src2) {
-                cpu->pc += addr;
-            }
-            break;
-        }
-        case 0x3 : {
-            if (src1 < src2) {
-                cpu->pc += addr;
-            }
-            break;
-        }
-        case 0x4 : {
-            if (src1 >= src2) {
-                cpu->pc += addr;
-            }
-            break;
-        }
-        case 0x5 : {
-            if (src1 <= src2) {
-                cpu->pc += addr;
-            }
-            break;
-        }
+        case 0x0: should_jump = (src1 == src2); break;
+        case 0x1: should_jump = (src1 != src2); break;
+        case 0x2: should_jump = (src1 > src2); break;
+        case 0x3: should_jump = (src1 < src2); break;
+        case 0x4: should_jump = (src1 >= src2); break;
+        case 0x5: should_jump = (src1 <= src2); break;
         default:
             fprintf(stderr, "[-] ERROR-> exec_JMPC error!\n");
             assert(0);
+            return;
     }
     
+    // 如果条件满足，执行跳转
+    if (should_jump) {
+        cpu->pc += addr;
+    }
 }
 
 void exec_BIT_OP(CPU* cpu, uint32_t inst) {
