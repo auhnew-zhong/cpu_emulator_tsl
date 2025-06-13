@@ -228,6 +228,18 @@ void exec_BIT_OP(CPU* cpu, uint32_t inst) {
     }
 }
 
+void exec_BIT_SLICE(CPU* cpu, uint32_t inst) {
+    uint8_t Dst = (inst >> 24) & 0xF;      // [27-24]
+    uint8_t Src = (inst >> 20) & 0xF;      // [23-20]
+    uint8_t End = (inst >> 15) & 0x1F;     // [19-15]
+    uint8_t Start = (inst >> 10) & 0x1F;   // [14-10]
+    printf("%sbit_slice r%u r%u %u %u%s\n", ANSI_BLUE, Dst, Src, Start, End, ANSI_RESET);
+    // 实际BIT_SLICE操作可在此实现
+    uint32_t src1 = cpu->regs[Src];
+    uint32_t res = (src1 >> Start) & ((1 << (End - Start + 1)) - 1);
+    cpu->regs[Dst] = res;
+}
+
 void exec_LOAD(CPU* cpu, uint32_t inst) {
     uint32_t dst = (inst >> 24) & 0xF;
     uint32_t addr = inst & 0xFFFFFF;
@@ -246,6 +258,9 @@ int decode_four_byte_inst(CPU* cpu, uint64_t inst) {
             break;
         case 0x1: // BIT_OP
             exec_BIT_OP(cpu, inst_32);
+            break;
+        case 0x6: // BIT_SLICE
+            exec_BIT_SLICE(cpu, inst_32);
             break;
         case 0xD: // LOAD
             exec_LOAD(cpu, inst_32);

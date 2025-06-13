@@ -7,6 +7,7 @@
 #define trigger     0x3
 #define trigger_pos 0x4
 #define jmp         0x5
+#define bit_slice   0x6
 #define mov         0x7
 #define ret         0x8
 #define bl          0x9
