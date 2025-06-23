@@ -1,4 +1,4 @@
-#include "../includes/bus.h"
+#include "bus.h"
 
 uint64_t bus_load(BUS* bus, uint64_t addr, uint64_t size) {
     return dram_load(&(bus->dram), addr, size);

@@ -1,4 +1,4 @@
-#include "../includes/dram.h"
+#include "dram.h"
 #include <stdio.h>
 #include <assert.h>
 

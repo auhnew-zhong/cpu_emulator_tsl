@@ -1,0 +1,18 @@
+triggerPos = 60;
+
+# var signal1 = top.ctl.sig1 & 4'b1101;
+# if signal1 >= 4'b1001
+#     trigger;
+# endif
+
+INSTANCE inst1
+    STATE s1
+        goto s2;
+    END STATE
+    STATE s2
+        var signal1 = top.ctl.sig1 & 4'b1101;
+        if signal1 >= 4'b1001
+            trigger;
+        endif
+    END STATE
+END INSTANCE

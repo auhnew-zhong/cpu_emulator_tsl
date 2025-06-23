@@ -2,8 +2,8 @@
 #include <stdio.h>
 #include <assert.h>
 #include <stdbool.h>
-#include "../includes/cpu.h"
-#include "../includes/opcodes.h"
+#include "cpu.h"
+#include "opcodes.h"
 
 
 #define ANSI_YELLOW  "\x1b[33m"
@@ -22,10 +22,13 @@ struct signal_entry {
 
 // 示例信号表，可以根据实际需求扩展
 struct signal_entry signal_table[] = {
-    {1024, 0x11f1},
-    {2048, 0x22a2},
-    {4096, 0x33b3},
-    {8192, 0x44c4},
+    {0x00000004, 0x1001cccc},
+    {0x00001000, 0x10001111},
+    {0x00001008, 0x000060ff},
+    {0x00001024, 0x000011f1},
+    {0x00002048, 0x000022a2},
+    {0x00004096, 0x000033b3},
+    {0x00008192, 0x000044c4},
 };
 
 // 信号表大小
@@ -37,7 +40,8 @@ uint32_t get_signal_value(uint32_t addr) {
         if (signal_table[i].addr == addr)
             return signal_table[i].value;
     }
-    return 0;
+    fprintf(stderr, "[-] ERROR-> No signal found for address:0x%x\n", addr);
+    assert(0);
 }
 
 // print operation for DEBUG
@@ -162,22 +166,22 @@ void exec_JMPC(CPU* cpu, uint32_t inst) {
     uint32_t src1_reg = (inst >> 20) & 0xF;
     uint32_t src2_reg = (inst >> 16) & 0xF;
     uint32_t addr = (inst >> 8) & 0xFF;
-    printf("%sjmpc func=%u r%u r%u addr=%u%s\n", ANSI_BLUE, func, src1_reg, src2_reg, addr, ANSI_RESET);
+
+    // 打印
+    const char* func_symbols[] = {"==", "!=", ">", "<", ">=", "<="};
+    if (func <= 0x5) {
+        printf("%sjmpc r%u %s r%u addr=%u%s\n", ANSI_BLUE, src1_reg, func_symbols[func], src2_reg, addr, ANSI_RESET);
+    } else {
+        if (func == 0x6) {
+            printf("%sjmpc r%u == 'bP addr=%u%s\n", ANSI_BLUE, src1_reg, addr, ANSI_RESET);
+        } else {
+            printf("%sjmpc r%u == 'bN addr=%u%s\n", ANSI_BLUE, src1_reg, addr, ANSI_RESET);
+        }
+    }
     
     // 获取源操作数值
     uint32_t src1 = cpu->regs[src1_reg];
     uint32_t src2 = cpu->regs[src2_reg];
-    
-    // 特殊值检测 - 边沿触发判断
-    if (src2 == 0xaaaaaaaa) {
-        printf("rising edge!\n");
-        cpu->pc += addr;
-        return;
-    } else if (src2 == 0xbbbbbbbb) {
-        printf("falling edge!\n");
-        cpu->pc += addr;
-        return;
-    }
     
     // 使用查找表优化条件判断
     bool should_jump = false;
@@ -190,6 +194,8 @@ void exec_JMPC(CPU* cpu, uint32_t inst) {
         case 0x3: should_jump = (src1 < src2); break;
         case 0x4: should_jump = (src1 >= src2); break;
         case 0x5: should_jump = (src1 <= src2); break;
+        case 0x6: should_jump = true; break;
+        case 0x7: should_jump = true; break;
         default:
             fprintf(stderr, "[-] ERROR-> exec_JMPC error!\n");
             assert(0);
@@ -207,7 +213,13 @@ void exec_BIT_OP(CPU* cpu, uint32_t inst) {
     uint8_t dst_reg = (inst >> 22) & 0xF;
     uint8_t src1_reg = (inst >> 18) & 0xF;
     uint8_t src2_reg = (inst >> 14) & 0xF;
-    printf("%sbit_op r%u r%u r%u func=%u%s\n", ANSI_BLUE, dst_reg, src1_reg, src2_reg, func, ANSI_RESET);
+
+    // 打印
+    const char* func_symbols[] = {"&", "|", "^"};
+    if (func <= 0x2) {
+        printf("%sbit_op r%u = r%u %s r%u%s\n", ANSI_BLUE, dst_reg, src1_reg, func_symbols[func], src2_reg, ANSI_RESET);
+    }
+
     // 实际BIT_OP操作可在此实现
     uint32_t src1 = cpu->regs[src1_reg];
     uint32_t src2 = cpu->regs[src2_reg];
@@ -246,7 +258,7 @@ void exec_LOAD(CPU* cpu, uint32_t inst) {
     printf("%sload r%u %u%s\n", ANSI_BLUE, dst, addr, ANSI_RESET);
     // 实际LOAD操作可在此实现，获取信号变量值（可能拆分汇聚）
     cpu->regs[dst] = get_signal_value(addr);
-    printf("Get signal var from addr signal[%u]!\n", addr);
+    printf("Get signal var from addr[%u] = 0x%x\n", addr, cpu->regs[dst]);
 }
 
 int decode_four_byte_inst(CPU* cpu, uint64_t inst) {
