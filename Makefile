@@ -12,8 +12,8 @@ DEBUG = @
 # If you have another name for your main.c file, enter that in place of $(APP_NAME)
 # Make sure the name of the file you enter here matches exactly with the file saved
 # in your project directory.
-APP_NAME = main
-APP_SRC_FILES = $(APP_NAME).c
+APP_NAME = tsl_cpu_emulator
+APP_SRC_FILES = tsl_cpu_main.c
 
 # The . means current directory. Make sure you keep the Makefile in the same
 # directory as your project. 

@@ -8,13 +8,9 @@ Currently, the following has been implemented:
     1. TSL base instruction set
 
 ### TODO
-    1. Fully implement TSL (IMAFD extensions)
+    1. Fully implement TSL
     2. Interrupt handling
-    3. Trap handling
-    4. UART
-    5. VIRTIO
-    6. Run xv6 unix 
-    7. Run linux for tsl
+    3. Run linux for tsl
 
 ## Build and run
 
