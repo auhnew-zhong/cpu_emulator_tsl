@@ -85,5 +85,9 @@ int main(int argc, char* argv[]) {
         if (cpu.pc == 0)
             break;
     }
+    
+    // 清理资源
+    cpu_cleanup(&cpu);
+    
     return 0;
 }

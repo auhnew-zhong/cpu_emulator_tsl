@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <assert.h>
 #include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
 #include "cpu.h"
 #include "opcodes.h"
 
@@ -24,10 +26,11 @@ struct signal_entry {
 struct signal_entry signal_table[] = {
     {0x00000004, 0x1001cccc},
     {0x00001000, 0x10001111},
-    {0x00001008, 0x000060ff},
+    {0x00001008, 0x000060ff}, // 0x1001cccc
     {0x00001024, 0x000011f1},
     {0x00002048, 0x000022a2},
     {0x00004096, 0x000033b3},
+    {0x00004104, 0x10011ccc},
     {0x00008192, 0x000044c4},
 };
 
@@ -50,6 +53,150 @@ void print_op(char* s) {
 }
 
 //=====================================================================================
+//   Display info table
+//=====================================================================================
+
+// display信息表结构体
+struct display_info_entry {
+    uint32_t id;
+    char* format;
+    // 由于变量参数是动态的，这里不包含实际值，只在运行时解析
+};
+
+// 读取display_info.db文件并解析为display_info表
+struct display_info_entry* display_info_table = NULL;
+int display_info_table_size = 0;
+
+// 初始化display信息表
+void init_display_info_table() {
+    FILE* file = fopen("tests/display_info.db", "r");
+    if (!file) {
+        fprintf(stderr, "[-] ERROR-> Failed to open display_info.db\n");
+        return;
+    }
+
+    // 先计算行数，为表分配内存
+    int lines = 0;
+    char ch;
+    while(!feof(file)) {
+        ch = fgetc(file);
+        if(ch == '\n') {
+            lines++;
+        }
+    }
+    rewind(file);
+
+    // 分配内存
+    display_info_table = (struct display_info_entry*)malloc(lines * sizeof(struct display_info_entry));
+    if (!display_info_table) {
+        fprintf(stderr, "[-] ERROR-> Failed to allocate memory for display_info_table\n");
+        fclose(file);
+        return;
+    }
+
+    // 读取每一行并解析
+    char line[512];
+    int i = 0;
+    while (fgets(line, sizeof(line), file) && i < lines) {
+        // 检查行是否有效
+        if (line[0] != '{') continue;
+        
+        // 提取ID
+        uint32_t id;
+        if (sscanf(line, "{0x%x,", &id) != 1) continue;
+
+        // 提取格式字符串
+        char* format_start = strchr(line, '"');
+        if (!format_start) continue;
+        
+        char* format_end = strchr(format_start + 1, '"');
+        if (!format_end) continue;
+        
+        int format_len = format_end - format_start - 1;
+        char* format = (char*)malloc(format_len + 1);
+        if (!format) continue;
+        
+        strncpy(format, format_start + 1, format_len);
+        format[format_len] = '\0';
+        
+        // 保存到表中
+        display_info_table[i].id = id;
+        display_info_table[i].format = format;
+        i++;
+    }
+    
+    display_info_table_size = i;
+    fclose(file);
+    printf("[+] Loaded %d display info entries\n", display_info_table_size);
+}
+
+// 释放display信息表
+void free_display_info_table() {
+    if (display_info_table) {
+        for (int i = 0; i < display_info_table_size; i++) {
+            if (display_info_table[i].format) {
+                free(display_info_table[i].format);
+            }
+        }
+        free(display_info_table);
+        display_info_table = NULL;
+        display_info_table_size = 0;
+    }
+}
+
+// 根据ID获取display信息格式字符串
+char* get_display_format(uint32_t id) {
+    for (int i = 0; i < display_info_table_size; i++) {
+        if (display_info_table[i].id == id) {
+            return display_info_table[i].format;
+        }
+    }
+    return NULL;
+}
+
+// 从display_info表条目中提取完整字符串，包括格式和变量
+char* get_complete_display_string(uint32_t id) {
+    static char result[1024];
+    result[0] = '\0';
+    
+    // 读取文件并查找指定ID的行
+    FILE* file = fopen("tests/display_info.db", "r");
+    if (!file) {
+        return NULL;
+    }
+    
+    char line[1024];
+    while (fgets(line, sizeof(line), file)) {
+        uint32_t line_id;
+        if (sscanf(line, "{0x%x,", &line_id) == 1 && line_id == id) {
+            // 找到匹配的ID
+            fclose(file);
+            
+            // 移除行末尾的逗号和换行符
+            char* end = strrchr(line, '}');
+            if (end) *end = '\0';
+            
+            // 移除ID部分，只保留格式和变量
+            char* content_start = strchr(line, ',');
+            if (content_start) {
+                // 跳过逗号和空格
+                content_start++;
+                while (*content_start == ' ') content_start++;
+                
+                // 复制剩余部分
+                strcpy(result, content_start);
+                return result;
+            }
+            
+            return NULL;
+        }
+    }
+    
+    fclose(file);
+    return NULL;
+}
+
+//=====================================================================================
 //   CPU Initialization
 //=====================================================================================
 
@@ -57,20 +204,23 @@ void cpu_init(CPU *cpu) {
     cpu->regs[0] = 0x00;                    // register R0 hardwired to 0
     cpu->regs[15] = 0;                      // R15 返回地址寄存器
     cpu->pc      = DRAM_BASE;               // Set program counter to the base address
+    
+    // 初始化display信息表
+    init_display_info_table();
 }
 
 // 获取指令长度，根据操作码返回对应的字节数
 // 1字节: TRIGGER, RET, NOP
-// 2字节: TRIGGER_POS, JMP, BL
-// 4字节: JMPC(包含边沿检测), BIT_OP, LOAD
+// 2字节: TRIGGER_POS, JMP, BL, DISPLAY
+// 4字节: JMPC(包含边沿检测), BIT_OP, LOAD, BIT_SLICE
 // 8字节: MOV
 // 其他: 返回0，表示未知或不支持
 uint8_t get_inst_size(uint8_t opcode) {
     if (opcode == trigger || opcode == ret || opcode == nop)
         return 1;
-    else if (opcode == trigger_pos || opcode == jmp || opcode == bl)
+    else if (opcode == trigger_pos || opcode == jmp || opcode == bl || opcode == display)
         return 2;
-    else if (opcode == jmpc || opcode == bit_op || opcode == load)
+    else if (opcode == jmpc || opcode == bit_op || opcode == load || opcode == bit_slice)
         return 4;
     else if (opcode == mov)
         return 8;
@@ -243,12 +393,27 @@ void exec_BIT_OP(CPU* cpu, uint32_t inst) {
 void exec_BIT_SLICE(CPU* cpu, uint32_t inst) {
     uint8_t Dst = (inst >> 24) & 0xF;      // [27-24]
     uint8_t Src = (inst >> 20) & 0xF;      // [23-20]
-    uint8_t End = (inst >> 15) & 0x1F;     // [19-15]
-    uint8_t Start = (inst >> 10) & 0x1F;   // [14-10]
-    printf("%sbit_slice r%u r%u %u %u%s\n", ANSI_BLUE, Dst, Src, Start, End, ANSI_RESET);
-    // 实际BIT_SLICE操作可在此实现
+    uint8_t Start = (inst >> 15) & 0x1F;   // [19-15]
+    uint8_t End = (inst >> 10) & 0x1F;     // [14-10]
+    printf("%sbit_slice r%u r%u[%u:%u]%s\n", ANSI_BLUE, Dst, Src, Start, End, ANSI_RESET);
+    
+    // 实际BIT_SLICE操作
     uint32_t src1 = cpu->regs[Src];
-    uint32_t res = (src1 >> Start) & ((1 << (End - Start + 1)) - 1);
+    
+    // 确保Start <= End
+    if (Start > End) {
+        uint8_t temp = Start;
+        Start = End;
+        End = temp;
+    }
+
+    // 计算掩码: 创建一个长度为(End-Start+1)的全1位掩码
+    uint32_t mask = ((1U << (End - Start + 1)) - 1);
+    
+    // 右移提取指定位段，然后通过掩码保留需要的位
+    uint32_t res = (src1 >> Start) & mask;
+    
+    // 存储结果到目标寄存器
     cpu->regs[Dst] = res;
 }
 
@@ -316,6 +481,21 @@ void exec_JMP(CPU* cpu, uint16_t inst) {
     cpu->pc += offset;
 }
 
+void exec_DISPLAY(CPU* cpu, uint16_t inst) {
+    // 根据指令格式 [4bit op][10bit id][2bit rsv]
+    uint16_t id = (inst >> 2) & 0x3FF;
+    printf("%sdisplay %u%s\n", ANSI_BLUE, id, ANSI_RESET);
+    
+    // 获取完整的display字符串（格式+变量）
+    char* complete_string = get_complete_display_string(id);
+    if (complete_string) {
+        printf("display(%s)\n", complete_string);
+    } else {
+        printf("Display: No format string found for ID %u\n", id);
+        assert(0);
+    }
+}
+
 int decode_two_byte_inst(CPU* cpu, uint64_t inst) {
     uint16_t inst_16 = inst & 0xFFFF;
     uint8_t opcode = (inst_16 >> 12) & 0xF;
@@ -328,6 +508,9 @@ int decode_two_byte_inst(CPU* cpu, uint64_t inst) {
             break;
         case 0x09: // bl
             exec_BL(cpu, inst_16);
+            break;
+        case 0x0B: // display
+            exec_DISPLAY(cpu, inst_16);
             break;
         default: {
             fprintf(stderr, "[-] ERROR-> 2-byte opcode:0x%x\n", opcode);
@@ -425,4 +608,9 @@ int cpu_execute(CPU *cpu, uint64_t inst, uint8_t inst_length) {
         return 0;
     }
     return 1;  // 明确返回执行状态（1表示正常，0表示异常）
+}
+
+// 在程序结束时释放资源
+void cpu_cleanup(CPU *cpu) {
+    // 无需释放资源
 }

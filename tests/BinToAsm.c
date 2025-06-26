@@ -4,16 +4,16 @@
 
 // 获取指令长度，根据操作码返回对应的字节数
 // 1字节: TRIGGER, RET, NOP
-// 2字节: TRIGGER_POS, JMP, BL
-// 4字节: JMPC, BIT_OP, LOAD
+// 2字节: TRIGGER_POS, JMP, BL, DISPLAY
+// 4字节: JMPC, BIT_OP, LOAD, BIT_SLICE
 // 8字节: MOV
 // 其他: 返回0，表示未知或不支持
 int get_inst_size(uint8_t opcode) {
     if (opcode == 0x03 || opcode == 0x08 || opcode == 0x0A)
         return 1;
-    else if (opcode == 0x04 || opcode == 0x05 || opcode == 0x09)
+    else if (opcode == 0x04 || opcode == 0x05 || opcode == 0x09 || opcode == 0x0B)
         return 2;
-    else if (opcode == 0x0 || opcode == 0x1 || opcode == 0xD)
+    else if (opcode == 0x0 || opcode == 0x1 || opcode == 0x6 || opcode == 0xD)
         return 4;
     else if (opcode == 0x7)
         return 8;
@@ -66,6 +66,17 @@ const char* decode_bl(uint16_t inst, char* buf, size_t buflen) {
     return buf;
 }
 
+// 解码DISPLAY指令（2字节）
+const char* decode_display(uint16_t inst, char* buf, size_t buflen) {
+    if ((inst & 0x3) != 0)
+        return "UNKNOWN";
+    int16_t offset = (inst >> 2) & 0x3FF;
+    if (offset & 0x200)
+        offset = -(1024 - offset);
+    snprintf(buf, buflen, "DISPLAY %d", offset);
+    return buf;
+}
+
 // 解码2字节指令
 const char* decode_two_byte_inst(const uint8_t* bytes, char* buf, size_t buflen) {
     uint16_t inst = (bytes[0] << 8) | bytes[1]; // 大端序
@@ -74,6 +85,7 @@ const char* decode_two_byte_inst(const uint8_t* bytes, char* buf, size_t buflen)
         case 0x04: return decode_trigger_pos(inst, buf, buflen);
         case 0x05: return decode_jmp(inst, buf, buflen);
         case 0x09: return decode_bl(inst, buf, buflen);
+        case 0x0B: return decode_display(inst, buf, buflen);
         default:   return "UNKNOWN";
     }
 }
@@ -106,6 +118,16 @@ const char* decode_load(uint32_t inst, char* buf, size_t buflen) {
     return buf;
 }
 
+// 解码BIT_SLICE指令（4字节）
+const char* decode_bit_slice(uint32_t inst, char* buf, size_t buflen) {
+    uint32_t dst = (inst >> 24) & 0xF;
+    uint32_t src = (inst >> 20) & 0xF;
+    uint32_t start = (inst >> 15) & 0x1F;
+    uint32_t end = (inst >> 10) & 0x1F;
+    snprintf(buf, buflen, "BIT_SLICE r%u r%u %u %u", dst, src, start, end);
+    return buf;
+}
+
 // 解码4字节指令
 const char* decode_four_byte_inst(const uint8_t* bytes, char* buf, size_t buflen) {
     uint32_t inst = (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3];
@@ -114,6 +136,7 @@ const char* decode_four_byte_inst(const uint8_t* bytes, char* buf, size_t buflen
         case 0x0: return decode_jmpc(inst, buf, buflen);
         case 0x1: return decode_bit_op(inst, buf, buflen);
         case 0xD: return decode_load(inst, buf, buflen);
+        case 0x6: return decode_bit_slice(inst, buf, buflen);
         default:  return "UNKNOWN";
     }
 }

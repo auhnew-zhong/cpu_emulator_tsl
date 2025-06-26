@@ -16,9 +16,14 @@ typedef struct CPU {
     struct BUS bus;             // CPU connected to BUS
 } CPU;
 
+// CPU基本操作函数
 void cpu_init(struct CPU *cpu);
 uint64_t cpu_fetch(struct CPU *cpu, uint8_t *inst_length);
 int cpu_execute(struct CPU *cpu, uint64_t inst, uint8_t inst_length);
-void dump_registers(struct CPU *cpu); 
+void dump_registers(struct CPU *cpu);
+void cpu_cleanup(struct CPU *cpu);
+
+// Display信息表相关函数
+char* get_complete_display_string(uint32_t id);
 
 #endif

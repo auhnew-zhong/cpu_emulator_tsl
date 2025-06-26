@@ -3,17 +3,17 @@ import sys  # 系统相关功能，用于命令行参数
 
 # 获取指令长度，根据操作码返回对应的字节数
 # 1字节: TRIGGER, RET, NOP
-# 2字节: TRIGGER_POS, JMP, BL
-# 4字节: JMPC, BIT_OP, LOAD
+# 2字节: TRIGGER_POS, JMP, BL, DISPLAY
+# 4字节: JMPC, BIT_OP, LOAD, BIT_SLICE
 # 8字节: MOV
 # 其他: 返回0，表示未知或不支持
 
 def get_inst_size(opcode):
     if opcode in [0x03, 0x08, 0x0A]:
         return 1
-    elif opcode in [0x04, 0x05, 0x09]:
+    elif opcode in [0x04, 0x05, 0x09, 0x0B]:
         return 2
-    elif opcode in [0x0, 0x1, 0xD]:
+    elif opcode in [0x0, 0x1, 0x6, 0xD]:
         return 4
     elif opcode == 0x7:
         return 8

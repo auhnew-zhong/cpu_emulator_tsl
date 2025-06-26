@@ -1,0 +1,41 @@
+# Global Definition Section
+triggerPos = 90;
+
+if top.ctl.sig0 == 32'h1001cccc
+    trigger;
+endif
+
+# INSTANCE Definition Section
+INSTANCE inst1
+    # States Definition Section
+    STATE s1
+        if top.op[5:5] == 1'b1
+            display("top.op[5:5] : %s", top.op[5:5]);
+        else
+            goto s2;
+        endif
+    END STATE
+
+    # States Definition Section
+    STATE s2
+        var signal1 = top.ctl.sig0 ^ top.ctl.sig1;
+        if signal1[3:0] >= 4'b1101
+            display("signal1[7:0] : %s, top.ctl.sig0[7:0] : %s, top.ctl.sig1[7:0] : %s", signal1[7:0], top.ctl.sig0[4:0], top.ctl.sig1[7:0]);
+            goto s3;
+        endif
+    END STATE
+
+    # States Definition Section
+    STATE s3
+        if top.op == 'bP
+            trigger;
+        else
+            var signal2 = top.ctl.sig1 & top.ctl.sig2;
+            if signal2 == 4'b1111
+                trigger;
+            else
+                display("signal2[1:1] : %s", signal2[1:1]);
+            endif
+        endif
+    END STATE
+END INSTANCE

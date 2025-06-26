@@ -2,17 +2,17 @@ import sys
 
 # 获取指令长度，根据操作码返回对应的字节数
 # 1字节: TRIGGER, RET, NOP
-# 2字节: TRIGGER_POS, JMP, BL
-# 4字节: JMPC, BIT_OP, LOAD
+# 2字节: TRIGGER_POS, JMP, BL, DISPLAY
+# 4字节: JMPC, BIT_OP, LOAD, BIT_SLICE
 # 8字节: MOV
 # 其他: 返回0，表示未知或不支持
 
 def get_inst_size(opcode):
     if opcode in [0x03, 0x08, 0x0A]:
         return 1
-    elif opcode in [0x04, 0x05, 0x09]:
+    elif opcode in [0x04, 0x05, 0x09, 0x0B]:
         return 2
-    elif opcode in [0x0, 0x1, 0xD]:
+    elif opcode in [0x0, 0x1, 0x6, 0xD]:
         return 4
     elif opcode == 0x7:
         return 8
@@ -71,6 +71,19 @@ def decode_bl(inst):
         offset = -(1024 - offset)
     return f"BL {offset}"
 
+# 解码DISPLAY指令（2字节）
+# 低2位必须为0，否则非法
+# offset为[11:2]，10位有符号
+
+def decode_display(inst):
+    if (inst & 0x3) != 0:
+        return "UNKNOWN"
+    offset = (inst >> 2) & 0x3FF
+    # 处理有符号数
+    if offset & 0x200:
+        offset = -(1024 - offset)
+    return f"DISPLAY {offset}"
+
 # 解码2字节指令，根据高4位opcode分发
 
 def decode_two_byte_inst(bytes_):
@@ -82,6 +95,8 @@ def decode_two_byte_inst(bytes_):
         return decode_jmp(inst)
     elif opcode == 0x09:
         return decode_bl(inst)
+    elif opcode == 0x0B:
+        return decode_display(inst)
     else:
         return "UNKNOWN"
 
@@ -113,6 +128,16 @@ def decode_load(inst):
     addr = inst & 0xFFFFFF
     return f"LOAD r{dst} {addr}"
 
+# 解码BIT_SLICE指令（4字节）
+# dst: [27-24], src: [23-20], start: [19-15], end: [14-10]
+
+def decode_bit_slice(inst):
+    dst = (inst >> 24) & 0xF
+    src = (inst >> 20) & 0xF
+    start = (inst >> 15) & 0x1F
+    end = (inst >> 10) & 0x1F
+    return f"BIT_SLICE r{dst} r{src} {start} {end}"
+
 # 解码4字节指令，根据高4位opcode分发
 
 def decode_four_byte_inst(bytes_):
@@ -122,6 +147,8 @@ def decode_four_byte_inst(bytes_):
         return decode_jmpc(inst)
     elif opcode == 0x1:
         return decode_bit_op(inst)
+    elif opcode == 0x6:
+        return decode_bit_slice(inst)
     elif opcode == 0xD:
         return decode_load(inst)
     else:
