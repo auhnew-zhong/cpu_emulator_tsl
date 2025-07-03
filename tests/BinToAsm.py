@@ -10,7 +10,7 @@ import sys
 def get_inst_size(opcode):
     if opcode in [0x03, 0x08, 0x0A]:
         return 1
-    elif opcode in [0x04, 0x05, 0x09, 0x0B]:
+    elif opcode in [0x04, 0x05, 0x09, 0x0B, 0x0E]:
         return 2
     elif opcode in [0x0, 0x1, 0x6, 0xD]:
         return 4
@@ -84,6 +84,21 @@ def decode_display(inst):
         offset = -(1024 - offset)
     return f"DISPLAY {offset}"
 
+# 解码EDGE_DETECT指令（2字节）
+# dst: [11-8], src: [7-4], func: [3-1], polarity: [0]
+
+def decode_edge_detect(inst):
+    dst = (inst >> 8) & 0xF
+    src = (inst >> 4) & 0xF
+    func = (inst >> 1) & 0x3
+    # 功能名称
+    func_names = ["上升沿", "下降沿"]
+
+    if func <= 1:
+        return f"EDGE_DETECT r{dst} r{src} {func_names[func]}"
+    else:
+        return f"EDGE_DETECT r{dst} r{src} func={func}"
+
 # 解码2字节指令，根据高4位opcode分发
 
 def decode_two_byte_inst(bytes_):
@@ -97,6 +112,8 @@ def decode_two_byte_inst(bytes_):
         return decode_bl(inst)
     elif opcode == 0x0B:
         return decode_display(inst)
+    elif opcode == 0x0E:
+        return decode_edge_detect(inst)
     else:
         return "UNKNOWN"
 

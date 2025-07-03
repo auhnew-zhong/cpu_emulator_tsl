@@ -211,14 +211,14 @@ void cpu_init(CPU *cpu) {
 
 // 获取指令长度，根据操作码返回对应的字节数
 // 1字节: TRIGGER, RET, NOP
-// 2字节: TRIGGER_POS, JMP, BL, DISPLAY
+// 2字节: TRIGGER_POS, JMP, BL, DISPLAY, EDGE_DETECT
 // 4字节: JMPC(包含边沿检测), BIT_OP, LOAD, BIT_SLICE
 // 8字节: MOV
 // 其他: 返回0，表示未知或不支持
 uint8_t get_inst_size(uint8_t opcode) {
     if (opcode == trigger || opcode == ret || opcode == nop)
         return 1;
-    else if (opcode == trigger_pos || opcode == jmp || opcode == bl || opcode == display)
+    else if (opcode == trigger_pos || opcode == jmp || opcode == bl || opcode == display || opcode == edge_detect)
         return 2;
     else if (opcode == jmpc || opcode == bit_op || opcode == load || opcode == bit_slice)
         return 4;
@@ -496,6 +496,20 @@ void exec_DISPLAY(CPU* cpu, uint16_t inst) {
     }
 }
 
+void exec_EDGE_DETECT(CPU* cpu, uint16_t inst) {
+    uint8_t dst = (inst >> 8) & 0xF;
+    uint8_t src = (inst >> 4) & 0xF;
+    uint8_t func = (inst >> 1) & 0x3;
+    if (func <= 1) {
+        const char* func_names[] = {"P", "N"};
+        printf("%sedge_detect r%u==%s%s\n", ANSI_BLUE, src, func_names[func], ANSI_RESET);
+    } else {
+        printf("%sedge_detect error!\n", ANSI_BLUE);
+        assert(0);
+    }
+    // 实际EDGE_DETECT操作可在此实现
+}
+
 int decode_two_byte_inst(CPU* cpu, uint64_t inst) {
     uint16_t inst_16 = inst & 0xFFFF;
     uint8_t opcode = (inst_16 >> 12) & 0xF;
@@ -511,6 +525,9 @@ int decode_two_byte_inst(CPU* cpu, uint64_t inst) {
             break;
         case 0x0B: // display
             exec_DISPLAY(cpu, inst_16);
+            break;
+        case 0x0E: // edge_detect
+            exec_EDGE_DETECT(cpu, inst_16);
             break;
         default: {
             fprintf(stderr, "[-] ERROR-> 2-byte opcode:0x%x\n", opcode);

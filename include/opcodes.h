@@ -15,5 +15,6 @@
 #define display     0xb
 #define exec        0xc
 #define load        0xd
+#define edge_detect 0xe
 
 #endif
