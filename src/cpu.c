@@ -69,7 +69,7 @@ int display_info_table_size = 0;
 
 // 初始化display信息表
 void init_display_info_table() {
-    FILE* file = fopen("tests/display_info.db", "r");
+    FILE* file = fopen("examples/display_info.db", "r");
     if (!file) {
         fprintf(stderr, "[-] ERROR-> Failed to open display_info.db\n");
         return;
@@ -160,7 +160,7 @@ char* get_complete_display_string(uint32_t id) {
     result[0] = '\0';
     
     // 读取文件并查找指定ID的行
-    FILE* file = fopen("tests/display_info.db", "r");
+    FILE* file = fopen("examples/display_info.db", "r");
     if (!file) {
         return NULL;
     }
@@ -216,9 +216,9 @@ void cpu_init(CPU *cpu) {
 // 8字节: MOV
 // 其他: 返回0，表示未知或不支持
 uint8_t get_inst_size(uint8_t opcode) {
-    if (opcode == trigger || opcode == ret || opcode == nop)
+    if (opcode == trigger || opcode == ret || opcode == timer_set)
         return 1;
-    else if (opcode == trigger_pos || opcode == jmp || opcode == bl || opcode == display || opcode == edge_detect)
+    else if (opcode == trigger_pos || opcode == jmp || opcode == bl || opcode == display || opcode == edge_detect || opcode == domain_set)
         return 2;
     else if (opcode == jmpc || opcode == bit_op || opcode == load || opcode == bit_slice)
         return 4;
@@ -472,6 +472,13 @@ void exec_BL(CPU* cpu, uint16_t inst) {
     cpu->pc += offset;
 }
 
+void exec_DOMAIN_SET(CPU* cpu, uint16_t inst) {
+    // offset为[11:4]，8位无符号
+    uint8_t offset = (inst >> 4) & 0xFF;
+    printf("%sdomain %d%s\n", ANSI_BLUE, offset, ANSI_RESET);
+    // 实际DOMAIN_SET操作可在此实现
+}
+
 void exec_JMP(CPU* cpu, uint16_t inst) {
     // offset为[11:4]，8位有符号
     int16_t offset = (inst >> 4) & 0xFF;
@@ -523,6 +530,9 @@ int decode_two_byte_inst(CPU* cpu, uint64_t inst) {
         case 0x09: // bl
             exec_BL(cpu, inst_16);
             break;
+        case 0x0A: // domain_set
+            exec_DOMAIN_SET(cpu, inst_16);
+            break;
         case 0x0B: // display
             exec_DISPLAY(cpu, inst_16);
             break;
@@ -555,8 +565,14 @@ void exec_RET(CPU* cpu, uint8_t inst) {
     cpu->regs[15] = 0;
 }
 
-void exec_NOP(CPU* cpu, uint8_t inst) {
-    printf("%snop%s\n", ANSI_BLUE, ANSI_RESET);
+void exec_TIMER_SET(CPU* cpu, uint8_t inst) {
+    printf("%stimer_set%s\n", ANSI_BLUE, ANSI_RESET);
+    // 实际TIMER_SET操作可在此实现
+    uint8_t id = (inst >> 1) & 0x1;
+    uint8_t func = (inst >> 2) & 0x3;
+    const char* id_names[] = {"0", "1"};
+    const char* func_names[] = {"reset", "enable", "disable"};
+    printf("timer%s %s\n", id_names[id], func_names[func]);
 }
 
 int decode_one_byte_inst(CPU* cpu, uint64_t inst) {
@@ -569,8 +585,8 @@ int decode_one_byte_inst(CPU* cpu, uint64_t inst) {
         case 0x08: // ret
             exec_RET(cpu, inst_8);
             break;
-        case 0x0A: // nop
-            exec_NOP(cpu, inst_8);
+        case 0x0F: // timer_set
+            exec_TIMER_SET(cpu, inst_8);
             break;
         default: {
             fprintf(stderr, "[-] ERROR-> 1-byte opcode:0x%x\n", opcode);

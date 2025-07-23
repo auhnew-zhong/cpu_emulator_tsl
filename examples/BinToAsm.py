@@ -1,16 +1,16 @@
 import sys
 
 # 获取指令长度，根据操作码返回对应的字节数
-# 1字节: TRIGGER, RET, NOP
-# 2字节: TRIGGER_POS, JMP, BL, DISPLAY
+# 1字节: TRIGGER, RET, TIMER_SET
+# 2字节: TRIGGER_POS, JMP, BL, DISPLAY, EDGE_DETECT, DOMAIN_SET
 # 4字节: JMPC, BIT_OP, LOAD, BIT_SLICE
 # 8字节: MOV
 # 其他: 返回0，表示未知或不支持
 
 def get_inst_size(opcode):
-    if opcode in [0x03, 0x08, 0x0A]:
+    if opcode in [0x03, 0x08, 0x0F]:
         return 1
-    elif opcode in [0x04, 0x05, 0x09, 0x0B, 0x0E]:
+    elif opcode in [0x04, 0x05, 0x09, 0xA, 0x0B, 0x0E]:
         return 2
     elif opcode in [0x0, 0x1, 0x6, 0xD]:
         return 4
@@ -19,8 +19,15 @@ def get_inst_size(opcode):
     else:
         return 0
 
+def decode_timer_set(inst):
+    if (inst & 0x1) != 0:
+        return "UNKNOWN"
+    id = (inst >> 1) & 0x1
+    func = (inst >> 2) & 0x3
+    return f"TIMER_SET {id} {func}"
+
 # 解码1字节指令
-# 只支持TRIGGER、RET、NOP，其他返回UNKNOWN
+# 只支持TRIGGER、RET、TIMER_SET，其他返回UNKNOWN
 
 def decode_one_byte_inst(byte):
     if (byte & 0xF) != 0:
@@ -30,8 +37,8 @@ def decode_one_byte_inst(byte):
         return "TRIGGER"
     elif opcode == 0x08:
         return "RET"
-    elif opcode == 0x0A:
-        return "NOP"
+    elif opcode == 0x0F:
+        return "TIMER_SET"
     else:
         return "UNKNOWN"
 
@@ -84,6 +91,16 @@ def decode_display(inst):
         offset = -(1024 - offset)
     return f"DISPLAY {offset}"
 
+# 解码DOMAIN_SET指令（2字节）
+# 低1位必须为0，否则非法
+# offset为[11:4]，8位有符号
+
+def decode_domain_set(inst):
+    if (inst & 0x1) != 0:
+        return "UNKNOWN"
+    offset = (inst >> 4) & 0xFF
+    return f"DOMAIN_SET {offset}"
+
 # 解码EDGE_DETECT指令（2字节）
 # dst: [11-8], src: [7-4], func: [3-1], polarity: [0]
 
@@ -112,6 +129,8 @@ def decode_two_byte_inst(bytes_):
         return decode_bl(inst)
     elif opcode == 0x0B:
         return decode_display(inst)
+    elif opcode == 0xA:
+        return decode_domain_set(inst)
     elif opcode == 0x0E:
         return decode_edge_detect(inst)
     else:

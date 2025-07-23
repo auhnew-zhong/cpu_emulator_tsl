@@ -1,0 +1,65 @@
+# Global Definition Section
+
+domain domain0 @(posedge clk1);
+domain domain1 @(negedge clk2);
+
+triggerPos = 90;
+
+timer timer0 {
+  value = 4000000000;
+  target = s2;
+}
+
+
+counter counter0 = 4'b1010;
+counter counter1 = 4'b1100;
+
+if (top.ctl.sig0 == 32'h1001cccc) {
+  trigger;
+}
+
+# INSTANCE Definition Section
+instance inst1 {
+    # States Definition Section
+    state s1 {
+        domain domain1;
+        if (top.op[5:5] == 'bN) {
+            increment counter counter0;
+            reset timer timer0;
+            display("top.op[5:5] : %s", top.op[5:5]);
+        } else {
+            goto s2;
+        }
+    }
+
+    # States Definition Section
+    state s2 {
+        decrement counter counter0;
+        var signal1 = top.ctl.sig0 ^ top.ctl.sig1;
+        if (signal1[3:0] >= 4'b1101) {
+            enable timer timer0;
+            display("signal1[7:0] : %s, top.ctl.sig0[7:0] : %s, top.ctl.sig1[7:0] : %s", signal1[7:0], top.ctl.sig0[4:0], top.ctl.sig1[7:0]);
+            goto s3;
+        }
+        if (counter1 == 4'b1111) {
+            trigger;
+        }
+    }
+
+
+    # States Definition Section
+    state s3 {
+      reset counter counter0;
+      reset counter counter1;
+        if (top.op == 'bP) {
+            trigger;
+        } else {
+            var signal2 = top.ctl.sig1 & top.ctl.sig2;
+            if (signal2[1:1] == 'bN) {
+                trigger;
+            } else {
+                display("signal2[1:1] : %s", signal2[1:1]);
+            }
+        }
+    }
+}
