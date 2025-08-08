@@ -7,7 +7,43 @@ import sys
 # 8字节: MOV
 # 其他: 返回0，表示未知或不支持
 
+def get_inst_size_from_bytes(data, pos):
+    """根据字节数据确定指令长度，处理MOV指令的变长情况"""
+    if pos >= len(data):
+        return 0
+    
+    first_byte = data[pos]
+    opcode = (first_byte >> 4) & 0xF
+    
+    if opcode in [0x03, 0x08, 0x0F]:
+        return 1
+    elif opcode in [0x04, 0x05, 0x09, 0xA, 0x0B, 0x0E]:
+        return 2
+    elif opcode in [0x0, 0x1, 0x6, 0xD]:
+        return 4
+    elif opcode == 0x7:  # MOV指令需要特殊处理
+        # 检查是否是16位MOV指令（寄存器到寄存器）
+        if pos + 1 < len(data):
+            second_byte = data[pos + 1]
+            first_two_bytes = (first_byte << 8) | second_byte
+            func_bit = (first_two_bytes >> 11) & 0x1
+            
+            # 检查是否所有高位字节都为0（表示16位指令）
+            is_short_inst = True
+            if pos + 8 <= len(data):
+                for i in range(2, 8):
+                    if data[pos + i] != 0:
+                        is_short_inst = False
+                        break
+            
+            if is_short_inst and func_bit == 1:
+                return 2  # MOV (寄存器到寄存器)
+        return 8  # MOVI (立即数到寄存器)
+    else:
+        return 0
+
 def get_inst_size(opcode):
+    """保持向后兼容的简单版本，用于不需要检查具体字节的场合"""
     if opcode in [0x03, 0x08, 0x0F]:
         return 1
     elif opcode in [0x04, 0x05, 0x09, 0xA, 0x0B, 0x0E]:
@@ -15,7 +51,7 @@ def get_inst_size(opcode):
     elif opcode in [0x0, 0x1, 0x6, 0xD]:
         return 4
     elif opcode == 0x7:
-        return 8
+        return 8  # 默认返回8，实际使用时应该用get_inst_size_from_bytes
     else:
         return 0
 
@@ -190,13 +226,30 @@ def decode_four_byte_inst(bytes_):
     else:
         return "UNKNOWN"
 
-# 解码MOV指令（8字节）
-# dst: [59-56], imm: [55-24]
+# 解码MOV指令，支持两种变体：
+# MOVI（64位）: [4bit op][1bit func][4bit dest][32bit imm][23bit rsv], func=0
+# MOV（16位）: [4bit op][1bit func][4bit dest][4bit src][3bit rsv], func=1
 
 def decode_mov(inst):
-    dst = (inst >> 56) & 0xF
-    imm = (inst >> 24) & 0xFFFFFFFF
-    return f"MOV r{dst} {imm}"
+    # 检查func位来区分MOVI和MOV指令
+    # 首先检查是否是16位MOV指令（寄存器到寄存器）
+    # 16位指令的高48位应该为0，且func位[11]=1
+    if (inst >> 16) == 0 and ((inst >> 11) & 0x1) == 1:
+        # MOV: mov $dst, $src - 16位指令
+        # [4bit op][1bit func][4bit dest][4bit src][3bit rsv]
+        dst = (inst >> 7) & 0xF      # [10-7]
+        src = (inst >> 3) & 0xF      # [6-3]
+        return f"MOV r{dst}, r{src}"
+    else:
+        # MOVI: mov $dst, $imm - 64位指令
+        # [4bit op][1bit func][4bit dest][32bit imm][23bit rsv]
+        func_bit = (inst >> 59) & 0x1  # [59]
+        if func_bit != 0:
+            return "INVALID_MOVI"  # func位应该为0表示MOVI
+        
+        dst = (inst >> 55) & 0xF           # [58-55]
+        imm = (inst >> 23) & 0xFFFFFFFF    # [54-23]
+        return f"MOV r{dst}, {imm}"
 
 # 解码8字节指令，目前只支持MOV
 

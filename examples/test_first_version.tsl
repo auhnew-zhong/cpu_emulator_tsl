@@ -1,41 +1,66 @@
 # Global Definition Section
+
+domain domain0 @(posedge clk1);
+domain domain1 @(negedge clk2);
+
 triggerPos = 90;
 
-if top.ctl.sig0 == 32'h1001cccc
-    trigger;
-endif
+timer timer0 {
+  value = 4000000000;
+  target = s2;
+}
+
+
+counter counter0 = 4'b1010;
+counter counter1 = 4'b1100;
+
+if (top.ctl.sig0 == 32'h1001cccc) {
+  trigger;
+}
 
 # INSTANCE Definition Section
-INSTANCE inst1
+instance inst1 {
     # States Definition Section
-    STATE s1
-        if top.op[5:5] == 1'b1
+    state s1 {
+        domain domain1;
+        if (top.op[5:5] == 'bN) {
+            increment counter counter0;
+            reset timer timer0;
             display("top.op[5:5] : %s", top.op[5:5]);
-        else
+        } else {
             goto s2;
-        endif
-    END STATE
+        }
+    }
 
     # States Definition Section
-    STATE s2
+    state s2 {
+        domain domain0;
+        decrement counter counter0;
         var signal1 = top.ctl.sig0 ^ top.ctl.sig1;
-        if signal1[3:0] >= 4'b1101
+        if (signal1[3:0] >= 4'b1101) {
+            enable timer timer0;
             display("signal1[7:0] : %s, top.ctl.sig0[7:0] : %s, top.ctl.sig1[7:0] : %s", signal1[7:0], top.ctl.sig0[4:0], top.ctl.sig1[7:0]);
             goto s3;
-        endif
-    END STATE
+        }
+        if (counter1 == 4'b1111) {
+            trigger;
+        }
+    }
+
 
     # States Definition Section
-    STATE s3
-        if top.op == 'bP
+    state s3 {
+      reset counter counter0;
+      reset counter counter1;
+        if (top.op == 'bP) {
             trigger;
-        else
+        } else {
             var signal2 = top.ctl.sig1 & top.ctl.sig2;
-            if signal2 == 4'b1111
+            if (signal2[1:1] == 'bN) {
                 trigger;
-            else
+            } else {
                 display("signal2[1:1] : %s", signal2[1:1]);
-            endif
-        endif
-    END STATE
-END INSTANCE
+            }
+        }
+    }
+}

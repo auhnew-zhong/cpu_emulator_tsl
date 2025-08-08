@@ -4,8 +4,9 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
-#include "cpu.h"
-#include "opcodes.h"
+#include "../include/cpu.h"
+#include "../include/opcodes.h"
+#include "../include/dram.h"
 
 
 #define ANSI_YELLOW  "\x1b[33m"
@@ -47,7 +48,7 @@ uint32_t get_signal_value(uint32_t addr) {
     assert(0);
 }
 
-// print operation for DEBUG
+// print operation
 void print_op(char* s) {
     printf("%s%s%s", ANSI_BLUE, s, ANSI_RESET);
 }
@@ -211,20 +212,25 @@ void cpu_init(CPU *cpu) {
 
 // 获取指令长度，根据操作码返回对应的字节数
 // 1字节: TRIGGER, RET, NOP
-// 2字节: TRIGGER_POS, JMP, BL, DISPLAY, EDGE_DETECT
+// 2字节: TRIGGER_POS, JMP, BL, DISPLAY, EDGE_DETECT, MOV (寄存器到寄存器)
 // 4字节: JMPC(包含边沿检测), BIT_OP, LOAD, BIT_SLICE
-// 8字节: MOV
+// 8字节: MOVI (立即数到寄存器)
+
 // 其他: 返回0，表示未知或不支持
 uint8_t get_inst_size(uint8_t opcode) {
     if (opcode == trigger || opcode == ret || opcode == timer_set)
         return 1;
-    else if (opcode == trigger_pos || opcode == jmp || opcode == bl || opcode == display || opcode == edge_detect || opcode == domain_set)
+    else if (opcode == trigger_pos || opcode == jmp || opcode == bl || 
+             opcode == display || opcode == edge_detect || opcode == domain_set)
         return 2;
     else if (opcode == jmpc || opcode == bit_op || opcode == load || opcode == bit_slice)
         return 4;
-    else if (opcode == mov)
-        return 8;
+    else if (opcode == mov) {
+        // MOV指令需要特殊处理，这里返回0表示需要进一步检查
+        return 0;
+    }
     else {
+        fprintf(stderr, "[-] ERROR: Unknown opcode 0x%x\n", opcode);
         assert(0);
         return 0;
     }
@@ -232,7 +238,23 @@ uint8_t get_inst_size(uint8_t opcode) {
 
 uint8_t getInstLength(CPU *cpu) {
     uint8_t opcode_byte = bus_load(&(cpu->bus), cpu->pc, 8);
-    return get_inst_size(opcode_byte >> 4 & 0xF);
+    uint8_t opcode = (opcode_byte >> 4) & 0xF;
+    
+    // 特殊处理MOV指令
+    if (opcode == mov) {
+        // 需要读取更多字节来判断是2字节MOV还是8字节MOVI
+        uint64_t inst = bus_load(&(cpu->bus), cpu->pc, 64); // 读取8字节
+        
+        // 检查是否是2字节MOV（寄存器到寄存器）
+        // 条件：高48位全为0，且func[11]=1
+        if ((inst >> 16) == 0 && ((inst >> 11) & 0x1) == 1) {
+            return 2;  // 2字节MOV
+        } else {
+            return 8;  // 8字节MOVI
+        }
+    }
+    
+    return get_inst_size(opcode);
 }
 
 //=====================================================================================
@@ -240,7 +262,7 @@ uint8_t getInstLength(CPU *cpu) {
 //=====================================================================================
 
 uint64_t cpu_fetch(CPU *cpu, uint8_t *inst_length) {
-    // 新增：检查指针有效性，避免解引用空指针
+    // 检查指针有效性
     if (inst_length == NULL) {
         fprintf(stderr, "[-] ERROR: cpu_fetch called with NULL inst_length pointer!\n");
         assert(0);
@@ -282,27 +304,35 @@ uint64_t rs2(uint32_t inst) {
 //   8BYTE Instruction Execution Functions
 //=====================================================================================
 
-void exec_MOV(CPU* cpu, uint64_t inst) {
-    uint8_t dst_reg = (inst >> 56) & 0xF;
-    uint32_t imm = (inst >> 24) & 0xFFFFFFFF;
-    printf("%smov r%u %u%s\n", ANSI_BLUE, dst_reg, imm, ANSI_RESET);
-    // 实际MOV操作可在此实现
+void exec_MOVI_8BYTE(CPU* cpu, uint64_t inst) {
+    // 8字节MOVI指令（立即数到寄存器）
+    // 格式: [4bit op][1bit func][4bit dest][32bit imm][23bit rsv]
+    // 条件：func[59] = 0
+    uint8_t func_bit = (inst >> 59) & 0x1; // [59]
+    if (func_bit != 0) {
+        fprintf(stderr, "[-] ERROR-> Invalid MOVI instruction, func bit should be 0\n");
+        assert(0);
+        return;
+    }
+    
+    uint8_t dst_reg = (inst >> 55) & 0xF;           // [58-55]
+    uint32_t imm = (inst >> 23) & 0xFFFFFFFF;       // [54-23]
+    
+    printf("%smov r%u, 0x%x%s\n", ANSI_BLUE, dst_reg, imm, ANSI_RESET);
+    // 执行MOVI操作：立即数到寄存器
     cpu->regs[dst_reg] = imm;
 }
 
 int decode_eight_byte_inst(CPU* cpu, uint64_t inst) {
-    uint64_t inst_64 = inst;
-    uint8_t opcode = (inst_64 >> 60) & 0xF;
+    uint8_t opcode = (inst >> 60) & 0xF;
     switch (opcode) {
-        case mov: {  // MOV立即数
-            exec_MOV(cpu, inst_64);
+        case 0x7: // MOVI (8-byte immediate)
+            exec_MOVI_8BYTE(cpu, inst);
             break;
-        }
-        default: {
+        default:
             fprintf(stderr, "[-] ERROR-> 8-byte opcode:0x%x\n", opcode);
             assert(0);
             return 0;
-        }
     }
     return 1;
 }
@@ -454,6 +484,18 @@ int decode_four_byte_inst(CPU* cpu, uint64_t inst) {
 //   2BYTE Instruction Execution Functions
 //=====================================================================================
 
+void exec_MOV_2BYTE(CPU* cpu, uint16_t inst) {
+    // 2字节MOV指令（寄存器到寄存器）
+    // 格式: [4bit op][1bit func][4bit dest][4bit src][3bit rsv]
+    uint8_t dst_reg = (inst >> 7) & 0xF;      // bits [10:7]
+    uint8_t src_reg = (inst >> 3) & 0xF;      // bits [6:3]
+    
+    printf("%smov r%u, r%u%s\n", ANSI_BLUE, dst_reg, src_reg, ANSI_RESET);
+    
+    // 执行MOV操作：寄存器到寄存器
+    cpu->regs[dst_reg] = cpu->regs[src_reg];
+}
+
 void exec_TRIGGER_POS(CPU* cpu, uint16_t inst) {
     // 立即数imm为[11:5]位
     uint8_t imm = (inst >> 5) & 0x7F;
@@ -463,7 +505,7 @@ void exec_TRIGGER_POS(CPU* cpu, uint16_t inst) {
 }
 
 void exec_BL(CPU* cpu, uint16_t inst) {
-    // offset为[11:2]，10位有符号
+    // offset为[11:2]，10位有符号fmovi
     int16_t offset = (inst >> 2) & 0x3FF;
     if (offset & 0x200) offset = -(1024 - offset);
     printf("%sbl %d%s\n", ANSI_BLUE, offset, ANSI_RESET);
@@ -521,29 +563,31 @@ int decode_two_byte_inst(CPU* cpu, uint64_t inst) {
     uint16_t inst_16 = inst & 0xFFFF;
     uint8_t opcode = (inst_16 >> 12) & 0xF;
     switch (opcode) {
-        case 0x04: // trigger_pos
+        case 0x4: // TRIGGER_POS
             exec_TRIGGER_POS(cpu, inst_16);
             break;
-        case 0x05: // jmp
+        case 0x7: // MOV (2-byte, register to register)
+            exec_MOV_2BYTE(cpu, inst_16);
+            break;
+        case 0x8: // JMP
             exec_JMP(cpu, inst_16);
             break;
-        case 0x09: // bl
+        case 0x9: // BL
             exec_BL(cpu, inst_16);
             break;
-        case 0x0A: // domain_set
+        case 0xA: // DOMAIN_SET
             exec_DOMAIN_SET(cpu, inst_16);
             break;
-        case 0x0B: // display
+        case 0xB: // DISPLAY
             exec_DISPLAY(cpu, inst_16);
             break;
-        case 0x0E: // edge_detect
+        case 0xE: // EDGE_DETECT
             exec_EDGE_DETECT(cpu, inst_16);
             break;
-        default: {
+        default:
             fprintf(stderr, "[-] ERROR-> 2-byte opcode:0x%x\n", opcode);
             assert(0);
             return 0;
-        }
     }
     return 1;
 }
