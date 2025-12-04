@@ -1,3 +1,0 @@
-{0x00000000, "top.op[5:5] : %s", top.op[5:5]},
-{0x00000001, "signal1[7:0] : %s, top.ctl.sig0[7:0] : %s, top.ctl.sig1[7:0] : %s", signal1[7:0], top.ctl.sig0[4:0], top.ctl.sig1[7:0]},
-{0x00000002, "signal2[1:1] : %s", signal2[1:1]},

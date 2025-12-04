@@ -33,6 +33,15 @@ uint64_t dram_load_64(DRAM* dram, uint64_t addr){
            (uint64_t)dram->mem[addr-DRAM_BASE + 7];
 }
 
+/*
+ * dram_load
+ * 作用：从DRAM加载数据。
+ * 行为：
+ *   - 根据地址和大小，调用相应的加载函数；
+ *   - 返回加载到的数据。
+ * 示例：
+ *   dram_load(dram, 0x00001000, 32) => 0x10001111000050ee000060ff000011f1
+ */
 uint64_t dram_load(DRAM* dram, uint64_t addr, uint64_t size) {
     // Check if address is within DRAM bounds
     if (addr >= DRAM_SIZE) {
@@ -105,6 +114,15 @@ void dram_store_64(DRAM* dram, uint64_t addr, uint64_t value) {
     dram->mem[addr-DRAM_BASE + 7] = (uint8_t)(value & 0xff);
 }
 
+/*
+ * dram_store
+ * 作用：向DRAM存储数据。
+ * 行为：
+ *   - 根据地址和大小，调用相应的存储函数；
+ *   - 无返回值。
+ * 示例：
+ *   dram_store(dram, 0x00001000, 32, 0x10001111000050ee000060ff000011f1) => 无返回值
+ */
 void dram_store(DRAM* dram, uint64_t addr, uint64_t size, uint64_t value) {
     switch (size) {
         case 8:  dram_store_8(dram, addr, value);  break;

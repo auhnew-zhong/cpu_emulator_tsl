@@ -1,0 +1,137 @@
+// Global Definition Section
+
+domain domain0 @(posedge clk1);
+domain domain1 @(negedge clk2);
+domain domain2 @(posedge clk1, negedge clk2);
+
+triggerPos = 90;
+
+timer timer0 {
+  value = 4000000000;
+  target = s2;
+}
+
+
+counter counter0 = {2{'b10}};
+counter counter1 = 4'b1100;
+
+if (top.ctl.sig0 == 32'h1001cccc) {
+  trigger;
+}
+
+// INSTANCE Definition Section
+instance inst1 {
+    // States Definition Section
+    state s1 {
+        domain domain0;
+        if (top.op[5:5] == 'bN) {
+            increment counter counter0;
+            reset timer timer0;
+            display("top.op[5:5] : %s", top.op[5:5]);
+            exec("tcl_command_example");
+        } else {
+            goto s2;
+        }
+    }
+
+    // States Definition Section
+    state s2 {
+        domain domain1;
+        decrement counter counter0;
+        var signal1 = top.ctl.sig0 ^ top.ctl.sig1;
+        
+        // 特殊运算符示例1: {} 连接运算符
+        var concat_result = {top.ctl.sig0[3:0], top.ctl.sig1[3:0]};
+        display("concat result: %s", concat_result);
+        
+        // 特殊运算符示例2: isunknown 运算符
+        var unknown_check1 = isunknown(top.ctl.sig0);
+        var unknown_check2 = isunknown(signal1);
+        var unknown_check3 = isunknown(concat_result);
+        
+        display("isunknown(top.ctl.sig0): %s", unknown_check1);
+        display("isunknown(signal1): %s", unknown_check2);
+        display("isunknown(concat_result): %s", unknown_check3);
+        
+        if (signal1[0:3] >= 4'b1101 && !(counter0 == 'b1111)) {
+            enable timer timer0;
+            display("signal1[7:0] : %s, top.ctl.sig0[7:0] : %s, top.ctl.sig1[7:0] : %s", signal1[7:0], top.ctl.sig0[4:0], top.ctl.sig1[7:0]);
+            exec("debug_script.tcl");
+        } else if (counter1 == 4'b1111 || counter0 == 4'b1111) {
+            trigger;
+        } else {
+            goto s3;
+        }
+    }
+
+
+    // States Definition Section
+    state s3 {
+      domain domain2;
+
+      reset counter counter0;
+      reset counter counter1;
+      
+        // 特殊运算符示例3: 多层连接运算符
+        var multi_concat = {top.op[1:0], {top.ctl.sig1[1:0], top.ctl.sig2[1:0]}};
+        display("multi-level concat: %s", multi_concat);
+        
+        // 特殊运算符示例4: 对不同类型信号进行 isunknown 检测
+        var unknown_op = isunknown(top.op);
+        var unknown_multi_concat = isunknown(multi_concat);
+        
+        display("isunknown(top.op): %s", unknown_op);
+        display("isunknown(multi_concat): %s", unknown_multi_concat);
+        
+        if (top.op[3:0] == b'PXTH) {
+            trigger;
+        } else {
+            var signal2 = top.ctl.sig1 & top.ctl.sig2;
+            
+            // 特殊运算符示例5: 对运算结果进行连接和未知检测
+            var combined_signal = {signal2[0:0], top.op[0:0]};
+            var unknown_combined = isunknown(combined_signal);
+            
+            display("combined_signal: %s", combined_signal);
+            display("isunknown(combined_signal): %s", unknown_combined);
+            
+            if (signal2[1:1] == 'bN) {
+                trigger;
+            } else {
+                display("signal2[1:1] : %s", signal2[1:1]);
+                goto s4;
+            }
+        }
+    }
+
+    // States Definition Section - 单目缩位运算符示例
+    state s4 {
+        domain domain0;
+        
+        // 单目缩位运算符 & | ^
+        var parity_check = ^top.ctl.sig0[7:0];
+        display("奇偶校验 ^top.ctl.sig0[7:0]: %s", parity_check);
+        
+        var all_ones_check = &top.ctl.sig1[3:0];
+        display("全1检测 &top.ctl.sig1[3:0]: %s", all_ones_check);
+        
+        var non_zero_check = |top.ctl.sig2[7:0];
+        display("非零检测 |top.ctl.sig2[7:0]: %s", non_zero_check);
+
+        // 按位取反运算符示例
+        var bitwise_not1 = ~top.ctl.sig0[7:0];    // ~0xF0 = 0x0F (按位取反)
+        display("原始数据1: 0x%h, 按位取反后: 0x%h", top.ctl.sig0[7:0], bitwise_not1);
+
+        // 条件判断示例
+        if (parity_check == 1'b1) {
+            display("检测到全1数据");
+            exec("cleanup_script");
+        } else if (all_ones_check == 1'b0) {
+            display("检测到全0数据");
+            trigger;
+        } else {
+            display("混合数据模式");
+            trigger;
+        }
+    }
+}

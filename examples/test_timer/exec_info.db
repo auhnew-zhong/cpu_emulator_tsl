@@ -1,0 +1,3 @@
+{0x00000000, tcl_command_example},
+{0x00000001, debug_script.tcl},
+{0x00000002, cleanup_script},

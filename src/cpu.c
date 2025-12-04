@@ -7,244 +7,61 @@
 #include "../include/cpu.h"
 #include "../include/opcodes.h"
 #include "../include/dram.h"
-
-
-#define ANSI_YELLOW  "\x1b[33m"
-#define ANSI_BLUE    "\x1b[31m"
-#define ANSI_RESET   "\x1b[0m"
-
-//=====================================================================================
-//   Signal table
-//=====================================================================================
-
-// 信号表结构体
-struct signal_entry {
-    uint32_t addr;
-    uint32_t value;
-};
-
-// 示例信号表，可以根据实际需求扩展
-struct signal_entry signal_table[] = {
-    {0x00000004, 0x1001cccc},
-    {0x00001000, 0x10001111},
-    {0x00001008, 0x000060ff}, // 0x1001cccc
-    {0x00001024, 0x000011f1},
-    {0x00002048, 0x000022a2},
-    {0x00004096, 0x000033b3},
-    {0x00004104, 0x10011ccc},
-    {0x00008192, 0x000044c4},
-};
-
-// 信号表大小
-const int signal_table_size = sizeof(signal_table) / sizeof(signal_table[0]);
-
-// 根据addr查找信号值，找不到返回0
-uint32_t get_signal_value(uint32_t addr) {
-    for (int i = 0; i < signal_table_size; ++i) {
-        if (signal_table[i].addr == addr)
-            return signal_table[i].value;
-    }
-    fprintf(stderr, "[-] ERROR-> No signal found for address:0x%x\n", addr);
-    assert(0);
-}
-
-// print operation
-void print_op(char* s) {
-    printf("%s%s%s", ANSI_BLUE, s, ANSI_RESET);
-}
-
-//=====================================================================================
-//   Display info table
-//=====================================================================================
-
-// display信息表结构体
-struct display_info_entry {
-    uint32_t id;
-    char* format;
-    // 由于变量参数是动态的，这里不包含实际值，只在运行时解析
-};
-
-// 读取display_info.db文件并解析为display_info表
-struct display_info_entry* display_info_table = NULL;
-int display_info_table_size = 0;
-
-// 初始化display信息表
-void init_display_info_table() {
-    FILE* file = fopen("examples/display_info.db", "r");
-    if (!file) {
-        fprintf(stderr, "[-] ERROR-> Failed to open display_info.db\n");
-        return;
-    }
-
-    // 先计算行数，为表分配内存
-    int lines = 0;
-    char ch;
-    while(!feof(file)) {
-        ch = fgetc(file);
-        if(ch == '\n') {
-            lines++;
-        }
-    }
-    rewind(file);
-
-    // 分配内存
-    display_info_table = (struct display_info_entry*)malloc(lines * sizeof(struct display_info_entry));
-    if (!display_info_table) {
-        fprintf(stderr, "[-] ERROR-> Failed to allocate memory for display_info_table\n");
-        fclose(file);
-        return;
-    }
-
-    // 读取每一行并解析
-    char line[512];
-    int i = 0;
-    while (fgets(line, sizeof(line), file) && i < lines) {
-        // 检查行是否有效
-        if (line[0] != '{') continue;
-        
-        // 提取ID
-        uint32_t id;
-        if (sscanf(line, "{0x%x,", &id) != 1) continue;
-
-        // 提取格式字符串
-        char* format_start = strchr(line, '"');
-        if (!format_start) continue;
-        
-        char* format_end = strchr(format_start + 1, '"');
-        if (!format_end) continue;
-        
-        int format_len = format_end - format_start - 1;
-        char* format = (char*)malloc(format_len + 1);
-        if (!format) continue;
-        
-        strncpy(format, format_start + 1, format_len);
-        format[format_len] = '\0';
-        
-        // 保存到表中
-        display_info_table[i].id = id;
-        display_info_table[i].format = format;
-        i++;
-    }
-    
-    display_info_table_size = i;
-    fclose(file);
-    printf("[+] Loaded %d display info entries\n", display_info_table_size);
-}
-
-// 释放display信息表
-void free_display_info_table() {
-    if (display_info_table) {
-        for (int i = 0; i < display_info_table_size; i++) {
-            if (display_info_table[i].format) {
-                free(display_info_table[i].format);
-            }
-        }
-        free(display_info_table);
-        display_info_table = NULL;
-        display_info_table_size = 0;
-    }
-}
-
-// 根据ID获取display信息格式字符串
-char* get_display_format(uint32_t id) {
-    for (int i = 0; i < display_info_table_size; i++) {
-        if (display_info_table[i].id == id) {
-            return display_info_table[i].format;
-        }
-    }
-    return NULL;
-}
-
-// 从display_info表条目中提取完整字符串，包括格式和变量
-char* get_complete_display_string(uint32_t id) {
-    static char result[1024];
-    result[0] = '\0';
-    
-    // 读取文件并查找指定ID的行
-    FILE* file = fopen("examples/display_info.db", "r");
-    if (!file) {
-        return NULL;
-    }
-    
-    char line[1024];
-    while (fgets(line, sizeof(line), file)) {
-        uint32_t line_id;
-        if (sscanf(line, "{0x%x,", &line_id) == 1 && line_id == id) {
-            // 找到匹配的ID
-            fclose(file);
-            
-            // 移除行末尾的逗号和换行符
-            char* end = strrchr(line, '}');
-            if (end) *end = '\0';
-            
-            // 移除ID部分，只保留格式和变量
-            char* content_start = strchr(line, ',');
-            if (content_start) {
-                // 跳过逗号和空格
-                content_start++;
-                while (*content_start == ' ') content_start++;
-                
-                // 复制剩余部分
-                strcpy(result, content_start);
-                return result;
-            }
-            
-            return NULL;
-        }
-    }
-    
-    fclose(file);
-    return NULL;
-}
+#include "../include/info_db.h"
+#include "../include/color.h"
 
 //=====================================================================================
 //   CPU Initialization
 //=====================================================================================
 
 void cpu_init(CPU *cpu) {
-    cpu->regs[0] = 0x00;                    // register R0 hardwired to 0
-    cpu->regs[15] = 0;                      // R15 返回地址寄存器
-    cpu->pc      = DRAM_BASE;               // Set program counter to the base address
-    
-    // 初始化display信息表
-    init_display_info_table();
+    // 初始化通用寄存器
+    for (int i = 0; i < 16; i++) {
+        cpu->regs[i] = 0;
+    }
+    cpu->regs[0] = 0x00;        // register R0 hardwired to 0
+    cpu->regs[16] = 0;          // R16 返回地址寄存器
+    cpu->pc = DRAM_BASE;        // Set program counter to the base address
+
+    // 初始化前一个周期的寄存器值
+    memset(cpu->prev_regs, 0, sizeof(cpu->prev_regs));
+
+    // 初始化域相关寄存器
+    cpu->domain = 0;
+
+    // 初始化计数器相关寄存器
+    cpu->counters[0] = 0;
+    cpu->counters[1] = 0;
+
+    // 初始化定时器相关寄存器
+    for (int i = 0; i < 2; i++) {
+        cpu->timer[i] = 0;
+        cpu->timer_enabled[i] = 0;
+        cpu->timer_threshold[i] = 0;  // 定时器i的阈值
+        cpu->timer_target_pc[i] = 0;  // 定时器i的目标PC
+    }   
+
+    // 初始化所有信息表
+    info_db_init_all(cpu);
 }
 
-// 获取指令长度，根据操作码返回对应的字节数
-// 1字节: TRIGGER, RET, NOP
-// 2字节: TRIGGER_POS, JMP, BL, DISPLAY, EDGE_DETECT, MOV (寄存器到寄存器)
-// 4字节: JMPC(包含边沿检测), BIT_OP, LOAD, BIT_SLICE
-// 8字节: MOVI (立即数到寄存器)
-
-// 其他: 返回0，表示未知或不支持
-uint8_t get_inst_size(uint8_t opcode) {
+/*
+ * get_inst_size
+ * 作用：根据操作码获取指令的字节数。
+ * 行为：
+ *   - 根据操作码判断指令的字节数；
+ *   - 返回指令的字节数。
+ */
+uint8_t get_inst_size(uint8_t opcode, CPU *cpu) {
     if (opcode == trigger || opcode == ret || opcode == timer_set)
         return 1;
-    else if (opcode == trigger_pos || opcode == jmp || opcode == bl || 
-             opcode == display || opcode == edge_detect || opcode == domain_set)
+    else if (opcode == trigger_pos || opcode == jmp || opcode == bl || opcode == display || opcode == edge_detect || opcode == domain_set || opcode == exec)
         return 2;
-    else if (opcode == jmpc || opcode == bit_op || opcode == load || opcode == bit_slice)
+    else if (opcode == jmpc || opcode == arith_op || opcode == load || opcode == bit_slice)
         return 4;
     else if (opcode == mov) {
-        // MOV指令需要特殊处理，这里返回0表示需要进一步检查
-        return 0;
-    }
-    else {
-        fprintf(stderr, "[-] ERROR: Unknown opcode 0x%x\n", opcode);
-        assert(0);
-        return 0;
-    }
-}
-
-uint8_t getInstLength(CPU *cpu) {
-    uint8_t opcode_byte = bus_load(&(cpu->bus), cpu->pc, 8);
-    uint8_t opcode = (opcode_byte >> 4) & 0xF;
-    
-    // 特殊处理MOV指令
-    if (opcode == mov) {
         // 需要读取更多字节来判断是2字节MOV还是8字节MOVI
         uint64_t inst = bus_load(&(cpu->bus), cpu->pc, 64); // 读取8字节
-        
         // 检查是否是2字节MOV（寄存器到寄存器）
         // 条件：高48位全为0，且func[11]=1
         if ((inst >> 16) == 0 && ((inst >> 11) & 0x1) == 1) {
@@ -253,22 +70,53 @@ uint8_t getInstLength(CPU *cpu) {
             return 8;  // 8字节MOVI
         }
     }
-    
-    return get_inst_size(opcode);
+    else {
+        fprintf(stderr, "%s[cpu][inst_size] unknown opcode 0x%x%s\n", ANSI_RED, opcode, ANSI_RESET);
+        return 0;
+    }
+}
+
+/*
+ * getInstLength
+ * 作用：根据当前PC值获取指令的字节数。
+ * 行为：
+ *   - 从当前PC位置读取8字节指令；
+ *   - 根据操作码判断指令的字节数；
+ *   - 返回指令的字节数。
+ */
+uint8_t getInstLength(CPU *cpu) {
+    uint8_t opcode_byte = bus_load(&(cpu->bus), cpu->pc, 8);
+    uint8_t opcode = (opcode_byte >> 4) & 0xF;
+    return get_inst_size(opcode, cpu);
 }
 
 //=====================================================================================
 // Instruction Fetch
 //=====================================================================================
 
+/*
+ * cpu_fetch
+ * 作用：从CPU总线获取指令。
+ * 行为：
+ *   - 根据当前PC值，从 DRAM 中读取指令；
+ *   - 更新PC值为下一条指令的地址；
+ *   - 返回读取到的指令。
+ */
 uint64_t cpu_fetch(CPU *cpu, uint8_t *inst_length) {
     // 检查指针有效性
     if (inst_length == NULL) {
-        fprintf(stderr, "[-] ERROR: cpu_fetch called with NULL inst_length pointer!\n");
-        assert(0);
+        fprintf(stderr, "%s[cpu][fetch] NULL inst_length ptr!%s\n", ANSI_RED, ANSI_RESET);
         return 0;
     }
     *inst_length = getInstLength(cpu);
+    if (*inst_length == 0) {
+        fprintf(stderr, "%s[cpu][fetch] invalid inst length at pc %#.8x!%s\n", ANSI_RED, cpu->pc, ANSI_RESET);
+        return 0;
+    }
+    if (cpu->pc + *inst_length > DRAM_SIZE) {
+        fprintf(stderr, "%s[cpu][fetch] pc out of range: %#.8x!%s\n", ANSI_RED, cpu->pc, ANSI_RESET);
+        return 0;
+    }
     return bus_load(&(cpu->bus), cpu->pc, *inst_length * 8);
 }
 
@@ -276,10 +124,24 @@ uint64_t cpu_fetch(CPU *cpu, uint8_t *inst_length) {
 // Assess Memory
 //=====================================================================================
 
+/*
+ * cpu_load
+ * 作用：从CPU总线加载数据。
+ * 行为：
+ *   - 调用总线加载函数，从 DRAM 中读取数据；
+ *   - 返回读取到的数据。
+ */
 uint64_t cpu_load(CPU* cpu, uint64_t addr, uint64_t size) {
     return bus_load(&(cpu->bus), addr, size);
 }
 
+/*
+ * cpu_store
+ * 作用：向CPU总线存储数据。
+ * 行为：
+ *   - 调用总线存储函数，将数据写入 DRAM；
+ *   - 无返回值。
+ */
 void cpu_store(CPU* cpu, uint64_t addr, uint64_t size, uint64_t value) {
     bus_store(&(cpu->bus), addr, size, value);
 }
@@ -288,50 +150,50 @@ void cpu_store(CPU* cpu, uint64_t addr, uint64_t size, uint64_t value) {
 // Instruction Decoder Functions
 //=====================================================================================
 
-uint64_t rd(uint32_t inst) {
-    return 0;
-}
-
-uint64_t rs1(uint32_t inst) {
-    return 0;
-}
-
-uint64_t rs2(uint32_t inst) {
-    return 0;
-}
-
 //=====================================================================================
 //   8BYTE Instruction Execution Functions
 //=====================================================================================
 
-void exec_MOVI_8BYTE(CPU* cpu, uint64_t inst) {
+/*
+ * exec_MOVI
+ * 作用：执行8字节MOVI指令。
+ * 行为：
+ *   - 根据操作码和立即数将立即数写入目标寄存器；
+ *   - 更新CPU状态。
+ */
+void exec_MOVI(CPU* cpu, uint64_t inst) {
     // 8字节MOVI指令（立即数到寄存器）
     // 格式: [4bit op][1bit func][4bit dest][32bit imm][23bit rsv]
     // 条件：func[59] = 0
     uint8_t func_bit = (inst >> 59) & 0x1; // [59]
     if (func_bit != 0) {
-        fprintf(stderr, "[-] ERROR-> Invalid MOVI instruction, func bit should be 0\n");
+        fprintf(stderr, "%s[cpu][decode] invalid MOVI func bit!%s\n", ANSI_RED, ANSI_RESET);
         assert(0);
-        return;
     }
-    
+
     uint8_t dst_reg = (inst >> 55) & 0xF;           // [58-55]
     uint32_t imm = (inst >> 23) & 0xFFFFFFFF;       // [54-23]
-    
-    printf("%smov r%u, 0x%x%s\n", ANSI_BLUE, dst_reg, imm, ANSI_RESET);
+
+    printf("%smov r%u, 0x%x%s\n", ANSI_BOLD_BLUE, dst_reg, imm, ANSI_RESET);
     // 执行MOVI操作：立即数到寄存器
     cpu->regs[dst_reg] = imm;
 }
 
+/*
+ * decode_eight_byte_inst
+ * 作用：解码8字节指令。
+ * 行为：
+ *   - 根据操作码执行对应的8字节指令；
+ *   - 返回1表示成功，返回0表示失败。
+ */
 int decode_eight_byte_inst(CPU* cpu, uint64_t inst) {
     uint8_t opcode = (inst >> 60) & 0xF;
     switch (opcode) {
         case 0x7: // MOVI (8-byte immediate)
-            exec_MOVI_8BYTE(cpu, inst);
+            exec_MOVI(cpu, inst);
             break;
         default:
-            fprintf(stderr, "[-] ERROR-> 8-byte opcode:0x%x\n", opcode);
-            assert(0);
+            fprintf(stderr, "%s[cpu][decode] 8-byte opcode:0x%x%s\n", ANSI_RED, opcode, ANSI_RESET);
             return 0;
     }
     return 1;
@@ -341,21 +203,28 @@ int decode_eight_byte_inst(CPU* cpu, uint64_t inst) {
 //   4BYTE Instruction Execution Functions
 //=====================================================================================
 
+/*
+ * exec_JMPC
+ * 作用：执行跳转条件指令。
+ * 行为：
+ *   - 根据操作码和源寄存器值执行跳转条件判断；
+ *   - 如果条件满足，更新PC寄存器。
+ */
 void exec_JMPC(CPU* cpu, uint32_t inst) {
     uint32_t func = (inst >> 24) & 0xF;
     uint32_t src1_reg = (inst >> 20) & 0xF;
     uint32_t src2_reg = (inst >> 16) & 0xF;
-    uint32_t addr = (inst >> 8) & 0xFF;
+    int8_t addr = (int8_t)((inst >> 8) & 0xFF);
 
-    // 打印
+    // 打印跳转条件指令
     const char* func_symbols[] = {"==", "!=", ">", "<", ">=", "<="};
     if (func <= 0x5) {
-        printf("%sjmpc r%u %s r%u addr=%u%s\n", ANSI_BLUE, src1_reg, func_symbols[func], src2_reg, addr, ANSI_RESET);
+        printf("%sjmpc r%u %s r%u addr=%d%s\n", ANSI_BOLD_BLUE, src1_reg, func_symbols[func], src2_reg, addr, ANSI_RESET);
     } else {
         if (func == 0x6) {
-            printf("%sjmpc r%u == 'bP addr=%u%s\n", ANSI_BLUE, src1_reg, addr, ANSI_RESET);
+            printf("%sjmpc r%u == 'bP addr=%d%s\n", ANSI_BOLD_BLUE, src1_reg, addr, ANSI_RESET);
         } else {
-            printf("%sjmpc r%u == 'bN addr=%u%s\n", ANSI_BLUE, src1_reg, addr, ANSI_RESET);
+            printf("%sjmpc r%u == 'bN addr=%d%s\n", ANSI_BOLD_BLUE, src1_reg, addr, ANSI_RESET);
         }
     }
     
@@ -374,10 +243,20 @@ void exec_JMPC(CPU* cpu, uint32_t inst) {
         case 0x3: should_jump = (src1 < src2); break;
         case 0x4: should_jump = (src1 >= src2); break;
         case 0x5: should_jump = (src1 <= src2); break;
-        case 0x6: should_jump = true; break;
-        case 0x7: should_jump = true; break;
+        case 0x6: { // 上升沿
+            uint8_t prev = cpu->prev_regs[src1_reg] & 1;
+            uint8_t curr = cpu->regs[src1_reg] & 1;
+            should_jump = (prev == 0 && curr == 1);
+            break;
+        }
+        case 0x7: { // 下降沿
+            uint8_t prev = cpu->prev_regs[src1_reg] & 1;
+            uint8_t curr = cpu->regs[src1_reg] & 1;
+            should_jump = (prev == 1 && curr == 0);
+            break;
+        }
         default:
-            fprintf(stderr, "[-] ERROR-> exec_JMPC error!\n");
+            fprintf(stderr, "%s[cpu][decode] exec_JMPC error!%s\n", ANSI_RED, ANSI_RESET);
             assert(0);
             return;
     }
@@ -388,74 +267,132 @@ void exec_JMPC(CPU* cpu, uint32_t inst) {
     }
 }
 
-void exec_BIT_OP(CPU* cpu, uint32_t inst) {
-    uint8_t func = (inst >> 26) & 0x3;
-    uint8_t dst_reg = (inst >> 22) & 0xF;
-    uint8_t src1_reg = (inst >> 18) & 0xF;
-    uint8_t src2_reg = (inst >> 14) & 0xF;
-
-    // 打印
-    const char* func_symbols[] = {"&", "|", "^"};
-    if (func <= 0x2) {
-        printf("%sbit_op r%u = r%u %s r%u%s\n", ANSI_BLUE, dst_reg, src1_reg, func_symbols[func], src2_reg, ANSI_RESET);
-    }
-
-    // 实际BIT_OP操作可在此实现
+/*
+ * exec_ARITH_OP
+ * 作用：执行算术操作指令。
+ * 行为：
+ *   - 根据操作码执行对应的算术操作；
+ *   - 更新目标寄存器的值。
+ */
+void exec_ARITH_OP(CPU* cpu, uint32_t inst) {
+    uint8_t func = (inst >> 24) & 0xF;
+    uint8_t dst_reg = (inst >> 20) & 0xF;
+    uint8_t src1_reg = (inst >> 16) & 0xF;
+    uint8_t src2_reg = (inst >> 12) & 0xF;
     uint32_t src1 = cpu->regs[src1_reg];
     uint32_t src2 = cpu->regs[src2_reg];
     switch (func) {
-        case 0x0 :
+        case 0x0:
+            printf("%sbit_op r%u = r%u & r%u%s\n", ANSI_BOLD_BLUE, dst_reg, src1_reg, src2_reg, ANSI_RESET);
             cpu->regs[dst_reg] = src1 & src2;
             break;
-        case 0x1 :
+        case 0x1:
+            printf("%sbit_op r%u = r%u | r%u%s\n", ANSI_BOLD_BLUE, dst_reg, src1_reg, src2_reg, ANSI_RESET);
             cpu->regs[dst_reg] = src1 | src2;
             break;
-        case 0x2 :
+        case 0x2:
+            printf("%sbit_op r%u = r%u ^ r%u%s\n", ANSI_BOLD_BLUE, dst_reg, src1_reg, src2_reg, ANSI_RESET);
             cpu->regs[dst_reg] = src1 ^ src2;
             break;
+        case 0x3: {
+            printf("%sredu_and r%u = &r%u%s\n", ANSI_BOLD_BLUE, dst_reg, src1_reg, ANSI_RESET);
+            uint32_t x = src1;
+            uint32_t r = 1;
+            for (int i = 0; i < 32; i++) r &= ((x >> i) & 1); // 与操作，判断是否所有位都是1
+            cpu->regs[dst_reg] = r;
+            break;
+        }
+        case 0x4: {
+            printf("%sredu_or r%u = |r%u%s\n", ANSI_BOLD_BLUE, dst_reg, src1_reg, ANSI_RESET);
+            uint32_t x = src1;
+            uint32_t r = 0;
+            for (int i = 0; i < 32; i++) r |= ((x >> i) & 1); // 或操作，判断是否有任意位是1
+            cpu->regs[dst_reg] = r;
+            break;
+        }
+        case 0x5: {
+            printf("%sredu_xor r%u = ^r%u%s\n", ANSI_BOLD_BLUE, dst_reg, src1_reg, ANSI_RESET);
+            uint32_t x = src1;
+            uint32_t r = 0;
+            for (int i = 0; i < 32; i++) r ^= ((x >> i) & 1); // 异或操作，判断是否有奇数个1
+            cpu->regs[dst_reg] = r;
+            break;
+        }
+        case 0x6:
+            printf("%sconcat r%u = {r%u,r%u}%s\n", ANSI_BOLD_BLUE, dst_reg, src1_reg, src2_reg, ANSI_RESET);
+            cpu->regs[dst_reg] = ((src1 & 0xFFFF) << 16) | (src2 & 0xFFFF); // 拼接操作，将src1的高16位和src2的低16位拼接起来，暂不考虑溢出
+            break;
+        case 0x7:
+            printf("%sisunknow r%u = isunknow(r%u)%s\n", ANSI_BOLD_BLUE, dst_reg, src1_reg, ANSI_RESET);
+            cpu->regs[dst_reg] = 1; // 暂不考虑isunknow操作，默认返回1
+            break;
+        case 0x8:
+            printf("%sadd r%u = r%u + r%u%s\n", ANSI_BOLD_BLUE, dst_reg, src1_reg, src2_reg, ANSI_RESET);
+            cpu->regs[dst_reg] = src1 + src2;
+            break;
+        case 0x9:
+            printf("%ssub r%u = r%u - r%u%s\n", ANSI_BOLD_BLUE, dst_reg, src1_reg, src2_reg, ANSI_RESET);
+            cpu->regs[dst_reg] = src1 - src2;
+            break;
         default:
-            fprintf(stderr, "[-] ERROR-> exec_BIT_OP error!\n");
+            fprintf(stderr, "%s[cpu][decode] exec_ARITH_OP error!\n%s", ANSI_RED, ANSI_RESET);
             assert(0);
             break;
     }
 }
 
+/*
+ * exec_BIT_SLICE
+ * 作用：执行位切片操作指令。
+ * 行为：
+ *   - 根据操作码执行对应的位切片操作；
+ *   - 更新目标寄存器的值。
+ */
 void exec_BIT_SLICE(CPU* cpu, uint32_t inst) {
     uint8_t Dst = (inst >> 24) & 0xF;      // [27-24]
     uint8_t Src = (inst >> 20) & 0xF;      // [23-20]
-    uint8_t Start = (inst >> 15) & 0x1F;   // [19-15]
-    uint8_t End = (inst >> 10) & 0x1F;     // [14-10]
-    printf("%sbit_slice r%u r%u[%u:%u]%s\n", ANSI_BLUE, Dst, Src, Start, End, ANSI_RESET);
-    
+    uint8_t End = (inst >> 15) & 0x1F;   // [19-15]
+    uint8_t Start  = (inst >> 10) & 0x1F;     // [14-10]
+    printf("%sbit_slice r%u r%u[%u:%u]%s\n", ANSI_BOLD_BLUE, Dst, Src, End, Start, ANSI_RESET);
     // 实际BIT_SLICE操作
-    uint32_t src1 = cpu->regs[Src];
-    
+    uint32_t src1 = cpu->regs[Src];    
     // 确保Start <= End
     if (Start > End) {
-        uint8_t temp = Start;
-        Start = End;
-        End = temp;
+        fprintf(stderr, "%s[cpu][decode] bit_slice error: Start > End%s\n", ANSI_RED, ANSI_RESET);
+        assert(0);
     }
-
     // 计算掩码: 创建一个长度为(End-Start+1)的全1位掩码
     uint32_t mask = ((1U << (End - Start + 1)) - 1);
-    
     // 右移提取指定位段，然后通过掩码保留需要的位
     uint32_t res = (src1 >> Start) & mask;
-    
     // 存储结果到目标寄存器
     cpu->regs[Dst] = res;
 }
 
+/*
+ * exec_LOAD
+ * 作用：执行加载指令。
+ * 行为：
+ *   - 根据操作码执行对应的加载操作；
+ *   - 更新目标寄存器的值。
+ */
 void exec_LOAD(CPU* cpu, uint32_t inst) {
     uint32_t dst = (inst >> 24) & 0xF;
     uint32_t addr = inst & 0xFFFFFF;
-    printf("%sload r%u %u%s\n", ANSI_BLUE, dst, addr, ANSI_RESET);
-    // 实际LOAD操作可在此实现，获取信号变量值（可能拆分汇聚）
-    cpu->regs[dst] = get_signal_value(addr);
-    printf("Get signal var from addr[%u] = 0x%x\n", addr, cpu->regs[dst]);
+    printf("%sload r%u %u%s\n", ANSI_BOLD_BLUE, dst, addr, ANSI_RESET);
+    // 实际LOAD操作可在此实现，获取信号变量值（拆分汇聚处理后）
+    uint32_t val = get_signal_value(addr);
+    cpu->regs[dst] = val;
+    printf("%sGet signal var from addr[%u] = 0x%x%s\n", ANSI_BOLD_GREEN, addr, val, ANSI_RESET);
 }
 
+/*
+ * decode_four_byte_inst
+ * 作用：解码并执行4字节指令。
+ * 行为：
+ *   - 根据操作码执行对应的4字节指令操作；
+ *   - 更新CPU状态。
+ */
 int decode_four_byte_inst(CPU* cpu, uint64_t inst) {
     uint32_t inst_32 = inst & 0xFFFFFFFF;
     uint8_t opcode = (inst_32 >> 28) & 0xF;
@@ -463,8 +400,8 @@ int decode_four_byte_inst(CPU* cpu, uint64_t inst) {
         case 0x0: // JMPC
             exec_JMPC(cpu, inst_32);
             break;
-        case 0x1: // BIT_OP
-            exec_BIT_OP(cpu, inst_32);
+        case 0x1: // ARITH_OP
+            exec_ARITH_OP(cpu, inst_32);
             break;
         case 0x6: // BIT_SLICE
             exec_BIT_SLICE(cpu, inst_32);
@@ -473,7 +410,7 @@ int decode_four_byte_inst(CPU* cpu, uint64_t inst) {
             exec_LOAD(cpu, inst_32);
             break;
         default:
-            fprintf(stderr, "[-] ERROR-> 4-byte opcode:0x%x\n", opcode);
+            fprintf(stderr, "%s[cpu][decode] 4-byte opcode:0x%x!%s\n", ANSI_RED, opcode, ANSI_RESET);
             assert(0);
             return 0;
     }
@@ -484,81 +421,185 @@ int decode_four_byte_inst(CPU* cpu, uint64_t inst) {
 //   2BYTE Instruction Execution Functions
 //=====================================================================================
 
-void exec_MOV_2BYTE(CPU* cpu, uint16_t inst) {
+/*
+ * exec_TRIGGER_POS
+ * 作用：执行触发位置指令。
+ * 行为：
+ *   - 根据操作码执行对应的触发位置操作；
+ *   - 更新触发位置。
+ */
+void exec_TRIGGER_POS(CPU* cpu, uint16_t inst) {
+    // 立即数imm为[11:5]位
+    uint8_t imm = (inst >> 5) & 0x7F;
+    printf("%strigger_pos %u%s\n", ANSI_BOLD_BLUE, imm, ANSI_RESET);
+    // 实际TRIGGER_POS操作可在此实现
+    printf("%sTrigger sample pos set %u%%!%s\n", ANSI_BOLD_GREEN, imm, ANSI_RESET);
+}
+
+/*
+ * exec_JMP
+ * 作用：执行基本快跳转指令，无需返回。
+ * 行为：
+ *   - 根据操作码执行对应的跳转操作；
+ *   - 更新PC寄存器。
+ */
+void exec_JMP(CPU* cpu, uint16_t inst) {
+    // offset为[11:4]，8位有符号
+    int16_t offset = (inst >> 4) & 0xFF;
+    // 处理有符号扩展
+    if (offset & 0x80) offset = -(256 - offset);
+    printf("%sjmp %d%s\n", ANSI_BOLD_BLUE, offset, ANSI_RESET);
+    // 实际JMP操作可在此实现
+    cpu->pc += offset;
+}
+
+/*
+ * exec_MOV
+ * 作用：执行2字节MOV指令。
+ * 行为：
+ *   - 根据操作码执行对应的2字节MOV操作；
+ *   - 更新目标寄存器的值。
+ */
+void exec_MOV(CPU* cpu, uint16_t inst) {
     // 2字节MOV指令（寄存器到寄存器）
     // 格式: [4bit op][1bit func][4bit dest][4bit src][3bit rsv]
     uint8_t dst_reg = (inst >> 7) & 0xF;      // bits [10:7]
     uint8_t src_reg = (inst >> 3) & 0xF;      // bits [6:3]
     
-    printf("%smov r%u, r%u%s\n", ANSI_BLUE, dst_reg, src_reg, ANSI_RESET);
+    printf("%smov r%u, r%u%s\n", ANSI_BOLD_BLUE, dst_reg, src_reg, ANSI_RESET);
     
     // 执行MOV操作：寄存器到寄存器
     cpu->regs[dst_reg] = cpu->regs[src_reg];
 }
 
-void exec_TRIGGER_POS(CPU* cpu, uint16_t inst) {
-    // 立即数imm为[11:5]位
-    uint8_t imm = (inst >> 5) & 0x7F;
-    printf("%strigger_pos %u%s\n", ANSI_BLUE, imm, ANSI_RESET);
-    // 实际TRIGGER_POS操作可在此实现
-    printf("Trigger sample pos set %u!\n", imm);
-}
-
+/*
+ * exec_BL
+ * 作用：执行函数跳转指令，需返回。
+ * 行为：
+ *   - 根据操作码执行对应的跳转操作；
+ *   - 更新PC寄存器。
+ */
 void exec_BL(CPU* cpu, uint16_t inst) {
     // offset为[11:2]，10位有符号fmovi
     int16_t offset = (inst >> 2) & 0x3FF;
+    // 处理有符号扩展
     if (offset & 0x200) offset = -(1024 - offset);
-    printf("%sbl %d%s\n", ANSI_BLUE, offset, ANSI_RESET);
+    printf("%sbl %d%s\n", ANSI_BOLD_BLUE, offset, ANSI_RESET);
     // 实际BL操作可在此实现
-    cpu->regs[15] = cpu->pc;  // 保存返回地址到R15
+    cpu->regs[16] = cpu->pc;  // 保存返回地址到R16
     cpu->pc += offset;
 }
 
+/*
+ * exec_DOMAIN_SET
+ * 作用：执行域设置指令。
+ * 行为：
+ *   - 根据操作码执行对应的域设置操作；
+ *   - 更新当前域。
+ */
 void exec_DOMAIN_SET(CPU* cpu, uint16_t inst) {
     // offset为[11:4]，8位无符号
     uint8_t offset = (inst >> 4) & 0xFF;
-    printf("%sdomain %d%s\n", ANSI_BLUE, offset, ANSI_RESET);
-    // 实际DOMAIN_SET操作可在此实现
+    printf("%sdomain %d%s\n", ANSI_BOLD_BLUE, offset, ANSI_RESET);
+    cpu->domain = offset;
+    char* info = get_domain_info(offset);
+    if (info) {
+        printf("%sdomain(%s)%s\n", ANSI_BOLD_GREEN, info, ANSI_RESET);
+    } else {
+        fprintf(stderr, "%s[cpu][db] domain not found: %u!%s\n", ANSI_RED, offset, ANSI_RESET);
+        assert(0);
+    }
 }
 
-void exec_JMP(CPU* cpu, uint16_t inst) {
-    // offset为[11:4]，8位有符号
-    int16_t offset = (inst >> 4) & 0xFF;
-    if (offset & 0x80) offset = -(256 - offset);
-    printf("%sjmp %d%s\n", ANSI_BLUE, offset, ANSI_RESET);
-    // 实际JMP操作可在此实现
-    cpu->pc += offset;
-}
-
+/*
+ * exec_DISPLAY
+ * 作用：执行显示指令。
+ * 行为：
+ *   - 根据操作码执行对应的显示操作；
+ *   - 打印显示字符串。
+ */
 void exec_DISPLAY(CPU* cpu, uint16_t inst) {
     // 根据指令格式 [4bit op][10bit id][2bit rsv]
     uint16_t id = (inst >> 2) & 0x3FF;
-    printf("%sdisplay %u%s\n", ANSI_BLUE, id, ANSI_RESET);
+    printf("%sdisplay %u%s\n", ANSI_BOLD_BLUE, id, ANSI_RESET);
     
     // 获取完整的display字符串（格式+变量）
     char* complete_string = get_complete_display_string(id);
     if (complete_string) {
-        printf("display(%s)\n", complete_string);
+        printf("%sdisplay(%s)%s\n", ANSI_BOLD_GREEN, complete_string, ANSI_RESET);
     } else {
-        printf("Display: No format string found for ID %u\n", id);
+        fprintf(stderr, "%s[cpu][db] display not found: %u!%s\n", ANSI_RED, id, ANSI_RESET);
+    }
+}
+
+/*
+ * exec_EXEC
+ * 作用：执行执行指令。
+ * 行为：
+ *   - 根据操作码执行对应的执行操作；
+ *   - 打印执行函数信息。
+ */
+void exec_EXEC(CPU* cpu, uint16_t inst_16) {
+    uint16_t id = (inst_16 >> 2) & 0x3FF;
+    printf("%sexec %u%s\n", ANSI_BOLD_BLUE, id, ANSI_RESET);
+    char* info = get_exec_info(id);
+    if (info) {
+        printf("%sexec(%s)%s\n", ANSI_BOLD_GREEN, info, ANSI_RESET);
+    } else {
+        printf("%sExec: No info found for ID %u%s\n", ANSI_RED, id, ANSI_RESET);
         assert(0);
     }
 }
 
+/*
+ * exec_EDGE_DETECT
+ * 作用：执行边缘检测指令。
+ * 行为：
+ *   - 根据操作码执行对应的边缘检测操作；
+ *   - 更新目标寄存器的值。
+ */
 void exec_EDGE_DETECT(CPU* cpu, uint16_t inst) {
     uint8_t dst = (inst >> 8) & 0xF;
     uint8_t src = (inst >> 4) & 0xF;
-    uint8_t func = (inst >> 1) & 0x3;
-    if (func <= 1) {
-        const char* func_names[] = {"P", "N"};
-        printf("%sedge_detect r%u==%s%s\n", ANSI_BLUE, src, func_names[func], ANSI_RESET);
+    uint8_t func = (inst >> 1) & 0x7;
+    uint8_t curr = cpu->regs[src] & 1;
+    uint8_t prev = cpu->prev_regs[src] & 1;
+    uint32_t res = 0;
+    if (func == 0) { // 正沿（上升沿，信号从0变为1）
+        printf("%sedge_detect r%u==P%s\n", ANSI_BOLD_BLUE, src, ANSI_RESET);
+        res = (prev == 0 && curr == 1) ? 1 : 0;
+    } else if (func == 1) { // 负沿（下降沿，信号从1变为0）
+        printf("%sedge_detect r%u==N%s\n", ANSI_BOLD_BLUE, src, ANSI_RESET);
+        res = (prev == 1 && curr == 0) ? 1 : 0;
+    } else if (func == 2) { // 任意跳变（正沿或负沿，即信号状态发生变化）
+        printf("%sedge_detect r%u==T%s\n", ANSI_BOLD_BLUE, src, ANSI_RESET);
+        res = (prev != curr) ? 1 : 0;
+    } else if (func == 3) { // 稳定低电平（连续2个FCLK周期保持0）
+        printf("%sedge_detect r%u==L%s\n", ANSI_BOLD_BLUE, src, ANSI_RESET);
+        res = (prev == 0 && curr == 0) ? 1 : 0;
+    } else if (func == 4) { // 稳定高电平（连续2个FCLK周期保持1）
+        printf("%sedge_detect r%u==H%s\n", ANSI_BOLD_BLUE, src, ANSI_RESET);
+        res = (prev == 1 && curr == 1) ? 1 : 0;
+    } else if (func == 5) { // 稳定状态（连续2个FCLK周期保持低或高，即无跳变）
+        printf("%sedge_detect r%u==S%s\n", ANSI_BOLD_BLUE, src, ANSI_RESET);
+        res = (prev == curr) ? 1 : 0;
+    } else if (func == 6) { // 不关心（任何值都视为匹配）
+        printf("%sedge_detect r%u==X%s\n", ANSI_BOLD_BLUE, src, ANSI_RESET);
+        res = 1;
     } else {
-        printf("%sedge_detect error!\n", ANSI_BLUE);
+        printf("%sedge_detect r%u==UNK(%u)%s\n", ANSI_BOLD_RED, src, func, ANSI_RESET);
         assert(0);
     }
-    // 实际EDGE_DETECT操作可在此实现
+    cpu->regs[dst] = res;
 }
 
+/*
+ * decode_two_byte_inst
+ * 作用：解码并执行2字节指令。
+ * 行为：
+ *   - 根据操作码执行对应的2字节指令操作；
+ *   - 更新CPU状态。
+ */
 int decode_two_byte_inst(CPU* cpu, uint64_t inst) {
     uint16_t inst_16 = inst & 0xFFFF;
     uint8_t opcode = (inst_16 >> 12) & 0xF;
@@ -566,11 +607,11 @@ int decode_two_byte_inst(CPU* cpu, uint64_t inst) {
         case 0x4: // TRIGGER_POS
             exec_TRIGGER_POS(cpu, inst_16);
             break;
-        case 0x7: // MOV (2-byte, register to register)
-            exec_MOV_2BYTE(cpu, inst_16);
-            break;
-        case 0x8: // JMP
+        case 0x5: // JMP
             exec_JMP(cpu, inst_16);
+            break;
+        case 0x7: // MOV (2-byte, register to register)
+            exec_MOV(cpu, inst_16);
             break;
         case 0x9: // BL
             exec_BL(cpu, inst_16);
@@ -581,12 +622,14 @@ int decode_two_byte_inst(CPU* cpu, uint64_t inst) {
         case 0xB: // DISPLAY
             exec_DISPLAY(cpu, inst_16);
             break;
+        case 0xC: // EXEC
+            exec_EXEC(cpu, inst_16);
+            break;
         case 0xE: // EDGE_DETECT
             exec_EDGE_DETECT(cpu, inst_16);
             break;
         default:
-            fprintf(stderr, "[-] ERROR-> 2-byte opcode:0x%x\n", opcode);
-            assert(0);
+            fprintf(stderr, "%s[cpu][decode] 2-byte opcode:0x%x!%s\n", ANSI_RED, opcode, ANSI_RESET);
             return 0;
     }
     return 1;
@@ -596,29 +639,70 @@ int decode_two_byte_inst(CPU* cpu, uint64_t inst) {
 //   1BYTE Instruction Execution Functions
 //=====================================================================================
 
+/*
+ * exec_TRIGGER
+ * 作用：执行触发指令。
+ * 行为：
+ *   - 根据操作码执行对应的触发操作；
+ *   - 打印触发信号样本信息。
+ */
 void exec_TRIGGER(CPU* cpu, uint8_t inst) {
-    printf("%strigger%s\n", ANSI_BLUE, ANSI_RESET);
+    printf("%strigger%s\n", ANSI_BOLD_BLUE, ANSI_RESET);
     // 实际TRIGGER操作可在此实现
-    printf("Time stop! Start trigger signal sample!\n");
+    printf("%sTime stop! Start trigger signal sample!%s\n", ANSI_BOLD_GREEN, ANSI_RESET);
 }
 
+/*
+ * exec_RET
+ * 作用：执行返回指令。
+ * 行为：
+ *   - 根据操作码执行对应的返回操作；
+ *   - 更新PC寄存器。
+ */
 void exec_RET(CPU* cpu, uint8_t inst) {
-    printf("%sret%s\n", ANSI_BLUE, ANSI_RESET);
+    printf("%sret%s\n", ANSI_BOLD_BLUE, ANSI_RESET);
     // 实际RET操作可在此实现
-    cpu->pc = cpu->regs[15];
-    cpu->regs[15] = 0;
+    cpu->pc = cpu->regs[16];
+    cpu->regs[16] = 0;
 }
 
+/*
+ * exec_TIMER_SET
+ * 作用：执行定时器设置指令
+ * 行为：
+ *   - 根据操作码执行对应的定时器设置操作；
+ * 示例：
+ *   exec_TIMER_SET(0, 0x0) => 无返回值 (定时器0重置)
+ *   exec_TIMER_SET(0, 0x1) => 无返回值 (定时器0去使能)
+ *   exec_TIMER_SET(0, 0x2) => 无返回值 (定时器0使能)
+ */
 void exec_TIMER_SET(CPU* cpu, uint8_t inst) {
-    printf("%stimer_set%s\n", ANSI_BLUE, ANSI_RESET);
+    printf("%stimer_set%s\n", ANSI_BOLD_BLUE, ANSI_RESET);
     // 实际TIMER_SET操作可在此实现
-    uint8_t id = (inst >> 1) & 0x1;
-    uint8_t func = (inst >> 2) & 0x3;
+    uint8_t id = (inst >> 3) & 0x1;
+    uint8_t func = (inst >> 1) & 0x3;
     const char* id_names[] = {"0", "1"};
-    const char* func_names[] = {"reset", "enable", "disable"};
-    printf("timer%s %s\n", id_names[id], func_names[func]);
+    const char* func_names[] = {"reset", "disable", "enable"};
+    const char* fname = (func < 3) ? func_names[func] : "unknown";
+    printf("%stimer%s %s%s\n", ANSI_BOLD_GREEN, id_names[id], fname, ANSI_RESET);
+    if (func == 0) {
+        cpu->timer[id] = 0;
+    } else if (func == 1) {
+        cpu->timer_enabled[id] = 0;
+    } else if (func == 2) {
+        cpu->timer_enabled[id] = 1;
+    } else {
+        fprintf(stderr, "%s[cpu][timer] unknown func: %u!%s\n", ANSI_RED, func, ANSI_RESET);
+    }
 }
 
+/*
+ * decode_one_byte_inst
+ * 作用：解码并执行1字节指令。
+ * 行为：
+ *   - 根据操作码执行对应的1字节指令操作；
+ *   - 更新CPU状态。
+ */
 int decode_one_byte_inst(CPU* cpu, uint64_t inst) {
     uint8_t inst_8 = inst & 0xFF;
     uint8_t opcode = (inst_8 >> 4) & 0xF;
@@ -633,8 +717,7 @@ int decode_one_byte_inst(CPU* cpu, uint64_t inst) {
             exec_TIMER_SET(cpu, inst_8);
             break;
         default: {
-            fprintf(stderr, "[-] ERROR-> 1-byte opcode:0x%x\n", opcode);
-            assert(0);
+            fprintf(stderr, "%s[cpu][decode] 1-byte opcode:0x%x!%s\n", ANSI_RED, opcode, ANSI_RESET);
             return 0;
         }
     }
@@ -645,6 +728,13 @@ int decode_one_byte_inst(CPU* cpu, uint64_t inst) {
 //   Dump Register Info
 //=====================================================================================
 
+/*
+ * dump_registers
+ * 作用：打印CPU寄存器状态。
+ * 行为：
+ *   - 打印16个寄存器状态；
+ *   - 打印PC寄存器状态。
+ */
 void dump_registers(CPU *cpu) {
     char* abi[] = { // Application Binary Interface registers
         "R0", "R1",  "R2",  "R3",
@@ -655,39 +745,71 @@ void dump_registers(CPU *cpu) {
 
     int N = 16;
     for (int i = 0; i < N; i++) {
+        print_color(ANSI_BOLD);
         printf("   %4s: %#-13.2x  ", abi[i], cpu->regs[i]);
+        print_color(ANSI_RESET);
         if (i % 4 == 3)
             printf("\n");
     }
+
+    print_color(ANSI_BOLD);
+    printf("   %4s: %#-13.2x  ", "C0", cpu->counters[0]);
+    printf("   %4s: %#-13.2x  ", "C1", cpu->counters[1]);
+    printf("   %4s: %#-13.2x  ", "T0", cpu->timer[0]);
+    printf("   %4s: %#-13.2x  ", "T1", cpu->timer[1]);
+    printf("   %4s: %#-13.2x  ", "PC", cpu->pc);
+    print_color(ANSI_RESET);
 }
 
 //=====================================================================================
 //   Cpu Execution root function
 //=====================================================================================
 
+/*
+ * cpu_execute
+ * 作用：执行CPU指令。
+ * 行为：
+ *   - 根据指令长度解码并执行指令；
+ *   - 更新CPU状态。
+ */
 int cpu_execute(CPU *cpu, uint64_t inst, uint8_t inst_length) {
     // 打印当前指令地址
-    printf("%s\n%#.8x -> %s", ANSI_YELLOW, cpu->pc, ANSI_RESET); // DEBUG
+    print_color(ANSI_YELLOW);
+    printf("\n%#.8x -> ", cpu->pc);
+    print_color(ANSI_RESET);
+
+    for (int i = 0; i < 16; i++) cpu->prev_regs[i] = cpu->regs[i];
 
     cpu->pc += inst_length; // update pc for next cpu cycle
 
     if (inst_length == 1) {
-        return decode_one_byte_inst(cpu, inst);
+        decode_one_byte_inst(cpu, inst);
     } else if (inst_length == 2) {
-        return decode_two_byte_inst(cpu, inst);
+        decode_two_byte_inst(cpu, inst);
     } else if (inst_length == 4) {
-        return decode_four_byte_inst(cpu, inst);
+        decode_four_byte_inst(cpu, inst);
     } else if (inst_length == 8) {
-        return decode_eight_byte_inst(cpu, inst);
+        decode_eight_byte_inst(cpu, inst);
     } else {
-        fprintf(stderr, "[-] ERROR-> inst_length:0x%x\n", inst_length);
-        assert(0);
+        fprintf(stderr, "%s[-] ERROR-> inst_length:0x%x!%s\n", ANSI_RED, inst_length, ANSI_RESET);
         return 0;
     }
+
+    // 执行定时器 tick 并跳转
+    timer_tick_and_jump(cpu);
+
     return 1;  // 明确返回执行状态（1表示正常，0表示异常）
 }
 
-// 在程序结束时释放资源
+/*
+ * cpu_cleanup
+ * 作用：释放CPU相关资源。
+ * 行为：
+ *   - 释放显示信息表、执行信息表、域信息表、定时器信息表等资源。
+ */
 void cpu_cleanup(CPU *cpu) {
-    // 无需释放资源
+    free_display_info_table();
+    free_exec_info_table();
+    free_domain_info_table();
+    free_timer_info_table();
 }
