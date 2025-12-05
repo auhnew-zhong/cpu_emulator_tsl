@@ -219,12 +219,12 @@ void exec_JMPC(CPU* cpu, uint32_t inst) {
     // 打印跳转条件指令
     const char* func_symbols[] = {"==", "!=", ">", "<", ">=", "<="};
     if (func <= 0x5) {
-        printf("%sjmpc r%u %s r%u addr=%d%s\n", ANSI_BOLD_BLUE, src1_reg, func_symbols[func], src2_reg, addr, ANSI_RESET);
+        printf("%sjmpc r%u %s r%u addr=0x%x%s\n", ANSI_BOLD_BLUE, src1_reg, func_symbols[func], src2_reg, addr, ANSI_RESET);
     } else {
         if (func == 0x6) {
-            printf("%sjmpc r%u == 'bP addr=%d%s\n", ANSI_BOLD_BLUE, src1_reg, addr, ANSI_RESET);
+            printf("%sjmpc r%u == 'bP addr=0x%x%s\n", ANSI_BOLD_BLUE, src1_reg, addr, ANSI_RESET);
         } else {
-            printf("%sjmpc r%u == 'bN addr=%d%s\n", ANSI_BOLD_BLUE, src1_reg, addr, ANSI_RESET);
+            printf("%sjmpc r%u == 'bN addr=0x%x%s\n", ANSI_BOLD_BLUE, src1_reg, addr, ANSI_RESET);
         }
     }
     
@@ -379,11 +379,11 @@ void exec_BIT_SLICE(CPU* cpu, uint32_t inst) {
 void exec_LOAD(CPU* cpu, uint32_t inst) {
     uint32_t dst = (inst >> 24) & 0xF;
     uint32_t addr = inst & 0xFFFFFF;
-    printf("%sload r%u %u%s\n", ANSI_BOLD_BLUE, dst, addr, ANSI_RESET);
+    printf("%sload r%u 0x%x%s\n", ANSI_BOLD_BLUE, dst, addr, ANSI_RESET);
     // 实际LOAD操作可在此实现，获取信号变量值（拆分汇聚处理后）
     uint32_t val = get_signal_value(addr);
     cpu->regs[dst] = val;
-    printf("%sGet signal var from addr[%u] = 0x%x%s\n", ANSI_BOLD_GREEN, addr, val, ANSI_RESET);
+    printf("%sGet signal var from addr[0x%x] = 0x%x%s\n", ANSI_BOLD_GREEN, addr, val, ANSI_RESET);
 }
 
 /*
@@ -562,29 +562,29 @@ void exec_EDGE_DETECT(CPU* cpu, uint16_t inst) {
     uint8_t dst = (inst >> 8) & 0xF;
     uint8_t src = (inst >> 4) & 0xF;
     uint8_t func = (inst >> 1) & 0x7;
-    uint8_t curr = cpu->regs[src] & 1;
-    uint8_t prev = cpu->prev_regs[src] & 1;
+    uint8_t curr = cpu->regs[src] & 0x1;
+    uint8_t prev = cpu->prev_regs[src] & 0x1; // 前一个FCLK周期，注意这里不是TSL软核的时钟周期而是EMU的时钟周期的信号状态
     uint32_t res = 0;
     if (func == 0) { // 正沿（上升沿，信号从0变为1）
-        printf("%sedge_detect r%u==P%s\n", ANSI_BOLD_BLUE, src, ANSI_RESET);
+        printf("%sedge_detect r%u r%u==P%s\n", ANSI_BOLD_BLUE, dst, src, ANSI_RESET);
         res = (prev == 0 && curr == 1) ? 1 : 0;
     } else if (func == 1) { // 负沿（下降沿，信号从1变为0）
-        printf("%sedge_detect r%u==N%s\n", ANSI_BOLD_BLUE, src, ANSI_RESET);
+        printf("%sedge_detect r%u r%u==N%s\n", ANSI_BOLD_BLUE, dst, src, ANSI_RESET);
         res = (prev == 1 && curr == 0) ? 1 : 0;
     } else if (func == 2) { // 任意跳变（正沿或负沿，即信号状态发生变化）
-        printf("%sedge_detect r%u==T%s\n", ANSI_BOLD_BLUE, src, ANSI_RESET);
+        printf("%sedge_detect r%u r%u==T%s\n", ANSI_BOLD_BLUE, dst, src, ANSI_RESET);
         res = (prev != curr) ? 1 : 0;
     } else if (func == 3) { // 稳定低电平（连续2个FCLK周期保持0）
-        printf("%sedge_detect r%u==L%s\n", ANSI_BOLD_BLUE, src, ANSI_RESET);
+        printf("%sedge_detect r%u r%u==L%s\n", ANSI_BOLD_BLUE, dst, src, ANSI_RESET);
         res = (prev == 0 && curr == 0) ? 1 : 0;
     } else if (func == 4) { // 稳定高电平（连续2个FCLK周期保持1）
-        printf("%sedge_detect r%u==H%s\n", ANSI_BOLD_BLUE, src, ANSI_RESET);
+        printf("%sedge_detect r%u r%u==H%s\n", ANSI_BOLD_BLUE, dst, src, ANSI_RESET);
         res = (prev == 1 && curr == 1) ? 1 : 0;
     } else if (func == 5) { // 稳定状态（连续2个FCLK周期保持低或高，即无跳变）
-        printf("%sedge_detect r%u==S%s\n", ANSI_BOLD_BLUE, src, ANSI_RESET);
+        printf("%sedge_detect r%u r%u==S%s\n", ANSI_BOLD_BLUE, dst, src, ANSI_RESET);
         res = (prev == curr) ? 1 : 0;
     } else if (func == 6) { // 不关心（任何值都视为匹配）
-        printf("%sedge_detect r%u==X%s\n", ANSI_BOLD_BLUE, src, ANSI_RESET);
+        printf("%sedge_detect r%u r%u==X%s\n", ANSI_BOLD_BLUE, dst, src, ANSI_RESET);
         res = 1;
     } else {
         printf("%sedge_detect r%u==UNK(%u)%s\n", ANSI_BOLD_RED, src, func, ANSI_RESET);
@@ -778,7 +778,7 @@ int cpu_execute(CPU *cpu, uint64_t inst, uint8_t inst_length) {
     printf("\n%#.8x -> ", cpu->pc);
     print_color(ANSI_RESET);
 
-    for (int i = 0; i < 16; i++) cpu->prev_regs[i] = cpu->regs[i];
+    for (int i = 0; i < 16; i++) cpu->prev_regs[i] = 1; // 前一个FCLK周期，注意这里不是TSL软核的时钟周期而是EMU的时钟周期的信号状态，这里赋值模拟
 
     cpu->pc += inst_length; // update pc for next cpu cycle
 
