@@ -193,7 +193,6 @@ typedef struct simple_entry {
 
 static simple_entry* exec_info_table = NULL; static int exec_info_table_size = 0;
 static simple_entry* domain_info_table = NULL; static int domain_info_table_size = 0;
-static simple_entry* timer_info_table = NULL; static int timer_info_table_size = 0;
 
 /*
 * 作用：通用加载器，读取 exec/domain/timer 等简单信息表。
@@ -250,42 +249,6 @@ void init_domain_info_table() { init_simple_table("domain_info.db", &domain_info
 void free_domain_info_table() { free_simple_table(&domain_info_table, &domain_info_table_size); }
 char* get_domain_info(uint32_t id) { return get_simple_info(id, domain_info_table, domain_info_table_size); }
 
-void init_timer_info_table() { init_simple_table("timer_info.db", &timer_info_table, &timer_info_table_size); }
-void free_timer_info_table() { free_simple_table(&timer_info_table, &timer_info_table_size); }
-char* get_timer_info(uint32_t id) { return get_simple_info(id, timer_info_table, timer_info_table_size); }
-
-/*
- * 作用：解析 timer_info.db 中定时器的阈值与目标 PC。
- * 行为：
- *   - 从 timer_info_table 中获取 ID 对应的文本描述；
- *   - 解析阈值（第一个非空格非制表符的十进制数）；
- *   - 解析目标 PC（格式如 "pc=0x1234" 或 "PC=0x5678"）；
- *   - 更新 CPU 状态中的 timer_threshold[id] 和 timer_target_pc[id]。
- */
-void timer_parse_info(CPU* cpu, uint32_t id) {
-    cpu->timer_enabled[id] = 1;
-    char* info = get_timer_info(id);
-    if (!info) { cpu->timer_target_pc[id] = 0; return; }
-    const char* s = info;
-    while (*s == ' ' || *s == '\t') s++;
-    char token[64]; size_t k = 0;
-    while (*s && *s != ',' && *s != ' ' && *s != '\t' && k < sizeof(token)-1) { token[k++] = *s++; }
-    token[k] = '\0';
-    if (k > 0) {
-        unsigned long thr = 0;
-        if (token[0] == '0' && (token[1] == 'x' || token[1] == 'X')) {
-            thr = strtoul(token, NULL, 0);
-        } else {
-            bool has_hex_char = false;
-            for (size_t i = 0; i < k; ++i) { char c = token[i]; if ((c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) { has_hex_char = true; break; } }
-            thr = strtoul(token, NULL, has_hex_char ? 16 : 10);
-        }
-        cpu->timer_threshold[id] = (uint32_t)thr;
-    }
-    cpu->timer_target_pc[id] = 0;
-    printf("   %4s[cpu][timer_parse_info] timer_threshold[%d]=%u, timer_target_pc[%d]=%#.8x%s\n", ANSI_BOLD_BLUE, id, cpu->timer_threshold[id], id, cpu->timer_target_pc[id], ANSI_RESET);
-}
-
 /*
  * 作用：模拟定时器计数并跳转。
  * 行为：
@@ -327,23 +290,14 @@ void info_db_init_all(CPU* cpu) {
     // 初始化域信息表
     init_domain_info_table();
 
-    // 初始化定时器信息表
-    init_timer_info_table();
-
     // 打印数据库加载信息
     print_color(ANSI_BOLD);
     printf("[DB INFO]:\n");
     print_color(ANSI_RESET);
     print_color(ANSI_BOLD_WHITE);
-    printf("   DISPLAY:%d EXEC:%d DOMAIN:%d TIMER:%d\n", 
+    printf("   DISPLAY:%d EXEC:%d DOMAIN:%d\n", 
            display_info_table_size,
            exec_info_table_size,
-           domain_info_table_size,
-           timer_info_table_size);
+           domain_info_table_size);
     print_color(ANSI_RESET);
-
-    // 解析定时器信息
-    for (int id = 0; id < timer_info_table_size; id++) {
-        timer_parse_info(cpu, id);
-    }
 }

@@ -16,11 +16,10 @@
 
 void cpu_init(CPU *cpu) {
     // 初始化通用寄存器
-    for (int i = 0; i < 16; i++) {
-        cpu->regs[i] = 0;
+    for (int i = 0; i < 14; i++) {
+        cpu->regs[i] = 0x0;
     }
-    cpu->regs[0] = 0x00;        // register R0 hardwired to 0
-    cpu->regs[16] = 0;          // R16 返回地址寄存器
+    cpu->ret_reg = 0;           // 初始化返回地址寄存器
     cpu->pc = DRAM_BASE;        // Set program counter to the base address
 
     // 初始化前一个周期的寄存器值
@@ -30,8 +29,8 @@ void cpu_init(CPU *cpu) {
     cpu->domain = 0;
 
     // 初始化计数器相关寄存器
-    cpu->counters[0] = 0;
-    cpu->counters[1] = 0;
+    cpu->regs[14] = 0;
+    cpu->regs[15] = 0;
 
     // 初始化定时器相关寄存器
     for (int i = 0; i < 2; i++) {
@@ -53,12 +52,14 @@ void cpu_init(CPU *cpu) {
  *   - 返回指令的字节数。
  */
 uint8_t get_inst_size(uint8_t opcode, CPU *cpu) {
-    if (opcode == trigger || opcode == ret || opcode == timer_set)
+    if (opcode == trigger || opcode == ret)
         return 1;
     else if (opcode == trigger_pos || opcode == jmp || opcode == bl || opcode == display || opcode == edge_detect || opcode == domain_set || opcode == exec)
         return 2;
     else if (opcode == jmpc || opcode == arith_op || opcode == load || opcode == bit_slice)
         return 4;
+    else if (opcode == timer_set)
+        return 8;
     else if (opcode == mov) {
         // 需要读取更多字节来判断是2字节MOV还是8字节MOVI
         uint64_t inst = bus_load(&(cpu->bus), cpu->pc, 64); // 读取8字节
@@ -173,10 +174,46 @@ void exec_MOVI(CPU* cpu, uint64_t inst) {
 
     uint8_t dst_reg = (inst >> 55) & 0xF;           // [58-55]
     uint32_t imm = (inst >> 23) & 0xFFFFFFFF;       // [54-23]
-
     printf("%smov r%u, 0x%x%s\n", ANSI_BOLD_BLUE, dst_reg, imm, ANSI_RESET);
-    // 执行MOVI操作：立即数到寄存器
     cpu->regs[dst_reg] = imm;
+}
+
+/*
+ * exec_TIMER_SET
+ * 作用：执行定时器设置指令
+ * 行为：
+ *   - 根据操作码执行对应的定时器设置操作或配置；
+ */
+void exec_TIMER_SET(CPU* cpu, uint64_t inst) {
+    uint8_t id = (inst >> 58) & 0x3;
+    uint8_t func = (inst >> 56) & 0x3;
+    uint32_t threshold = (inst >> 24) & 0xFFFFFFFF;
+    int16_t pc_off = (inst >> 14) & 0x3FF;
+    if (pc_off & 0x200) pc_off = -(1024 - pc_off);
+
+    const char* func_names[] = {"reset", "disable", "enable", "cfg_enable"};
+    const char* fname = func_names[func];
+
+    if (id >= 2) {
+        fprintf(stderr, "%s[cpu][timer_set] invalid id: %u!%s\n", ANSI_RED, id, ANSI_RESET);
+        return;
+    }
+    if (func == 0) {
+        printf("%stimer_set timer%u reset%s\n", ANSI_BOLD_BLUE, id, ANSI_RESET);
+        cpu->timer[id] = 0;
+    } else if (func == 1) {
+        printf("%stimer_set timer%u disable%s\n", ANSI_BOLD_BLUE, id, ANSI_RESET);
+        cpu->timer_enabled[id] = 0;
+    } else if (func == 2) {
+        printf("%stimer_set timer%u enable%s\n", ANSI_BOLD_BLUE, id, ANSI_RESET);
+        cpu->timer_enabled[id] = 1;
+    } else {
+        printf("%stimer_set timer%u %s threshold=%x pc_off=0x%x%s\n", ANSI_BOLD_BLUE, id, fname, threshold, pc_off, ANSI_RESET);
+        cpu->timer[id] = 0;
+        cpu->timer_threshold[id] = threshold;
+        cpu->timer_target_pc[id] = cpu->pc + pc_off;
+        cpu->timer_enabled[id] = 1;
+    }
 }
 
 /*
@@ -191,6 +228,9 @@ int decode_eight_byte_inst(CPU* cpu, uint64_t inst) {
     switch (opcode) {
         case 0x7: // MOVI (8-byte immediate)
             exec_MOVI(cpu, inst);
+            break;
+        case 0xF: // TIMER_SET
+            exec_TIMER_SET(cpu, inst);
             break;
         default:
             fprintf(stderr, "%s[cpu][decode] 8-byte opcode:0x%x%s\n", ANSI_RED, opcode, ANSI_RESET);
@@ -219,12 +259,12 @@ void exec_JMPC(CPU* cpu, uint32_t inst) {
     // 打印跳转条件指令
     const char* func_symbols[] = {"==", "!=", ">", "<", ">=", "<="};
     if (func <= 0x5) {
-        printf("%sjmpc r%u %s r%u addr=0x%x%s\n", ANSI_BOLD_BLUE, src1_reg, func_symbols[func], src2_reg, addr, ANSI_RESET);
+        printf("%sjmpc r%u %s r%u offset=0x%x%s\n", ANSI_BOLD_BLUE, src1_reg, func_symbols[func], src2_reg, addr, ANSI_RESET);
     } else {
         if (func == 0x6) {
-            printf("%sjmpc r%u == 'bP addr=0x%x%s\n", ANSI_BOLD_BLUE, src1_reg, addr, ANSI_RESET);
+            printf("%sjmpc r%u == 'bP offset=0x%x%s\n", ANSI_BOLD_BLUE, src1_reg, addr, ANSI_RESET);
         } else {
-            printf("%sjmpc r%u == 'bN addr=0x%x%s\n", ANSI_BOLD_BLUE, src1_reg, addr, ANSI_RESET);
+            printf("%sjmpc r%u == 'bN offset=0x%x%s\n", ANSI_BOLD_BLUE, src1_reg, addr, ANSI_RESET);
         }
     }
     
@@ -486,7 +526,7 @@ void exec_BL(CPU* cpu, uint16_t inst) {
     if (offset & 0x200) offset = -(1024 - offset);
     printf("%sbl %d%s\n", ANSI_BOLD_BLUE, offset, ANSI_RESET);
     // 实际BL操作可在此实现
-    cpu->regs[16] = cpu->pc;  // 保存返回地址到R16
+    cpu->ret_reg = cpu->pc;  // 保存返回地址到R14
     cpu->pc += offset;
 }
 
@@ -662,38 +702,8 @@ void exec_TRIGGER(CPU* cpu, uint8_t inst) {
 void exec_RET(CPU* cpu, uint8_t inst) {
     printf("%sret%s\n", ANSI_BOLD_BLUE, ANSI_RESET);
     // 实际RET操作可在此实现
-    cpu->pc = cpu->regs[16];
-    cpu->regs[16] = 0;
-}
-
-/*
- * exec_TIMER_SET
- * 作用：执行定时器设置指令
- * 行为：
- *   - 根据操作码执行对应的定时器设置操作；
- * 示例：
- *   exec_TIMER_SET(0, 0x0) => 无返回值 (定时器0重置)
- *   exec_TIMER_SET(0, 0x1) => 无返回值 (定时器0去使能)
- *   exec_TIMER_SET(0, 0x2) => 无返回值 (定时器0使能)
- */
-void exec_TIMER_SET(CPU* cpu, uint8_t inst) {
-    printf("%stimer_set%s\n", ANSI_BOLD_BLUE, ANSI_RESET);
-    // 实际TIMER_SET操作可在此实现
-    uint8_t id = (inst >> 3) & 0x1;
-    uint8_t func = (inst >> 1) & 0x3;
-    const char* id_names[] = {"0", "1"};
-    const char* func_names[] = {"reset", "disable", "enable"};
-    const char* fname = (func < 3) ? func_names[func] : "unknown";
-    printf("%stimer%s %s%s\n", ANSI_BOLD_GREEN, id_names[id], fname, ANSI_RESET);
-    if (func == 0) {
-        cpu->timer[id] = 0;
-    } else if (func == 1) {
-        cpu->timer_enabled[id] = 0;
-    } else if (func == 2) {
-        cpu->timer_enabled[id] = 1;
-    } else {
-        fprintf(stderr, "%s[cpu][timer] unknown func: %u!%s\n", ANSI_RED, func, ANSI_RESET);
-    }
+    cpu->pc = cpu->ret_reg;
+    cpu->ret_reg = 0;
 }
 
 /*
@@ -712,9 +722,6 @@ int decode_one_byte_inst(CPU* cpu, uint64_t inst) {
             break;
         case 0x08: // ret
             exec_RET(cpu, inst_8);
-            break;
-        case 0x0F: // timer_set
-            exec_TIMER_SET(cpu, inst_8);
             break;
         default: {
             fprintf(stderr, "%s[cpu][decode] 1-byte opcode:0x%x!%s\n", ANSI_RED, opcode, ANSI_RESET);
@@ -740,21 +747,19 @@ void dump_registers(CPU *cpu) {
         "R0", "R1",  "R2",  "R3",
         "R4", "R5",  "R6",  "R7",
         "R8", "R9",  "R10",  "R11",
-        "R12", "R13",  "R14",  "R15",
+        "R12", "R13"
     };
 
-    int N = 16;
+    int N = 14;
     for (int i = 0; i < N; i++) {
         print_color(ANSI_BOLD);
         printf("   %4s: %#-13.2x  ", abi[i], cpu->regs[i]);
-        print_color(ANSI_RESET);
         if (i % 4 == 3)
             printf("\n");
     }
-
-    print_color(ANSI_BOLD);
-    printf("   %4s: %#-13.2x  ", "C0", cpu->counters[0]);
-    printf("   %4s: %#-13.2x  ", "C1", cpu->counters[1]);
+    printf("   %4s: %#-13.2x  \n", "RET", cpu->ret_reg);
+    printf("   %4s: %#-13.2x  ", "C0", cpu->regs[14]);
+    printf("   %4s: %#-13.2x  ", "C1", cpu->regs[15]);
     printf("   %4s: %#-13.2x  ", "T0", cpu->timer[0]);
     printf("   %4s: %#-13.2x  ", "T1", cpu->timer[1]);
     printf("   %4s: %#-13.2x  ", "PC", cpu->pc);
@@ -778,7 +783,7 @@ int cpu_execute(CPU *cpu, uint64_t inst, uint8_t inst_length) {
     printf("\n%#.8x -> ", cpu->pc);
     print_color(ANSI_RESET);
 
-    for (int i = 0; i < 16; i++) cpu->prev_regs[i] = 1; // 前一个FCLK周期，注意这里不是TSL软核的时钟周期而是EMU的时钟周期的信号状态，这里赋值模拟
+    for (int i = 0; i < 14; i++) cpu->prev_regs[i] = 1; // 前一个FCLK周期，注意这里不是TSL软核的时钟周期而是EMU的时钟周期的信号状态，这里赋值模拟
 
     cpu->pc += inst_length; // update pc for next cpu cycle
 
@@ -811,5 +816,4 @@ void cpu_cleanup(CPU *cpu) {
     free_display_info_table();
     free_exec_info_table();
     free_domain_info_table();
-    free_timer_info_table();
 }

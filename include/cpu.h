@@ -11,12 +11,12 @@
 // 总内存为94.5M + 360M = 454.5M bit = 56.8M Byte
 
 typedef struct CPU {
-    uint32_t regs[17];          // 16 32-bit registers (R0-R15)
+    uint32_t regs[16];          // 14 32-bit GPR registers (R0-R13), 2 32bit COUNTER register (R14-R15) 
     uint32_t pc;                // 32-bit program counter
+    uint32_t ret_reg;           // 返回地址寄存器
+    uint32_t prev_regs[14];     // 上一周期（或上一条指令执行前）寄存器快照：用于比较变化、生成display信息、触发trace/观察点，避免在同一周期内读写竞争；R0-R13按顺序对应
     struct BUS bus;             // CPU connected to BUS
-    uint32_t prev_regs[16];     // 上一周期（或上一条指令执行前）寄存器快照：用于比较变化、生成display信息、触发trace/观察点，避免在同一周期内读写竞争；R0-R15按顺序对应
     uint8_t  domain;
-    uint32_t counters[2];
     uint32_t timer[2];
     uint8_t  timer_enabled[2];
     uint32_t timer_threshold[2];   // 计时器阈值，当计数达到该值触发跳转

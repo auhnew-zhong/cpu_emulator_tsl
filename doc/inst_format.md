@@ -62,6 +62,11 @@
 15. edge_detect（0xe，大小：16bit）
     [4bit op][4bit dst][4bit src][3bit func][1bit rsv]
     功能：信号边沿检测 （上升沿、下降沿等）
-16. timer_set（0xf，大小：8bit）
-    [4bit op][1bit id][2bit func][1bit rsv]
-    功能：id 为计数器 ID；func 为操作（reset/disable/enable）
+16. timer_set（0xf，大小：64bit）
+    [4bit op][2bit id][2bit func][32bit threshold][10bit pc_off][14bit rsv]
+    功能：统一配置并控制计时器。
+    - id：计时器编号（2bit，支持 0-1, 空出一位预留）
+    - func：操作类型（00=reset，01=disable，10=enable，11=configure+enable）
+    - threshold：32 位阈值（达到阈值触发）
+    - pc_off：PC 相对偏移（有符号 10bit，与 BL/JMP/JMPC 风格一致）
+    - rsv：保留位，置零

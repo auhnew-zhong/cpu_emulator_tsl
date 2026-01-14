@@ -6,6 +6,7 @@ source_filename = "trigger"
 
 define void @main() {
 entry:
+  call void @llvm.tsl.timer(i32 0, i32 3, i32 -294967296, ptr blockaddress(@inst1, %s2))
   call void @llvm.tsl.trigger.pos(i32 90)
   %top.ctl.sig0 = load i32, ptr inttoptr (i32 4 to ptr), align 4
   %cmptmp = icmp eq i32 %top.ctl.sig0, 268553420
@@ -111,7 +112,7 @@ then:                                             ; preds = %s1
   %counter0_load = load i32, ptr @counter0, align 4
   %counter0_inc = add i32 %counter0_load, 1
   store i32 %counter0_inc, ptr @counter0, align 4
-  call void @llvm.tsl.timer(i32 0, i32 0)
+  call void @llvm.tsl.timer(i32 0, i32 0, i32 -294967296, ptr blockaddress(@inst1, %s2))
   call void @llvm.tsl.display(i32 0)
   call void @llvm.tsl.exec(i32 0)
   br label %merge
@@ -123,7 +124,7 @@ merge:                                            ; preds = %then
   ret void
 
 then5:                                            ; preds = %s2
-  call void @llvm.tsl.timer(i32 0, i32 1)
+  call void @llvm.tsl.timer(i32 0, i32 1, i32 -294967296, ptr blockaddress(@inst1, %s2))
   call void @llvm.tsl.display(i32 5)
   call void @llvm.tsl.exec(i32 1)
   br label %merge14
@@ -222,7 +223,7 @@ declare i32 @llvm.tsl.bit.slice(i32, i32, i32) #1
 declare i1 @llvm.tsl.edge.detect(i32, i32) #1
 
 ; Function Attrs: nounwind
-declare void @llvm.tsl.timer(i32, i32) #0
+declare void @llvm.tsl.timer(i32, i32, i32, ptr) #0
 
 ; Function Attrs: nounwind
 declare void @llvm.tsl.display(i32) #0

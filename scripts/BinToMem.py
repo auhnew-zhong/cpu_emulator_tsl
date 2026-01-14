@@ -16,8 +16,10 @@ def get_inst_size_from_bytes(data, pos):
     first_byte = data[pos]
     opcode = (first_byte >> 4) & 0xF
     
-    if opcode in [0x03, 0x08, 0x0F]:
+    if opcode in [0x03, 0x08]:
         return 1
+    elif opcode == 0x0F:
+        return 8
     elif opcode in [0x04, 0x05, 0x09, 0x0A, 0x0B, 0x0C, 0x0E]:
         return 2
     elif opcode in [0x0, 0x1, 0x6, 0xD]:

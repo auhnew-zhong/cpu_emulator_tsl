@@ -7,6 +7,7 @@ main:                                   # @main
 # %bb.0:                                # %entry
 	mov %counter0, 10
 	mov %counter1, 12
+	timer_set 0, 3, -294967296, @.Ltmp0
 	trigger_pos	90
 	mov %r0, 268553420
 	load %r1, 4
@@ -28,14 +29,16 @@ inst1:                                  # @inst1
 	bit_slice %r0, %r4, 5, 5
 	edge_detect %r0, %r0, 1
 	mov %r2, 1
-	jmpc 1, %r0, %r2, @.LBB1_2
-# %bb.1:                                # %then
+	jmpc 0, %r0, %r2, @.LBB1_1
+	jmp	@.LBB1_2
+.LBB1_1:                                # %then
 	arith_op %counter0, %counter0, %r2, 8
-	timer_set 0, 0
+	timer_set 0, 0, -294967296, @.Ltmp0
 	display	0
 	exec 0
 	ret
-.LBB1_2:                                # %else
+.Ltmp0:                                 # Block address taken
+.LBB1_2:                                # %s2
 	domain_set 1
 	mov %r0, -1
 	arith_op %counter0, %counter0, %r0, 8
@@ -57,10 +60,11 @@ inst1:                                  # @inst1
 	mov %r7, 13
 	mov %r5, 15
 	jmpc 3, %r6, %r7, @.LBB1_5
-# %bb.3:                                # %else
-	jmpc 0, %counter0, %r5, @.LBB1_5
-# %bb.4:                                # %then5
-	timer_set 0, 1
+# %bb.3:                                # %s2
+	jmpc 1, %counter0, %r5, @.LBB1_4
+	jmp	@.LBB1_5
+.LBB1_4:                                # %then5
+	timer_set 0, 1, -294967296, @.Ltmp0
 	display	5
 	exec 1
 	ret

@@ -1,10 +1,10 @@
 import sys
 
 # 获取指令长度，根据操作码返回对应的字节数
-# 1字节: TRIGGER, RET, TIMER_SET
+# 1字节: TRIGGER, RET
 # 2字节: TRIGGER_POS, JMP, BL, DISPLAY, EXEC, EDGE_DETECT, DOMAIN_SET, MOVI
 # 4字节: JMPC, ARITH_OP, LOAD, BIT_SLICE
-# 8字节: MOV
+# 8字节: MOV, TIMER_SET
 # 其他: 返回0，表示未知或不支持
 
 def get_inst_size_from_bytes(data, pos):
@@ -12,8 +12,10 @@ def get_inst_size_from_bytes(data, pos):
         return 0
     first_byte = data[pos]
     opcode = (first_byte >> 4) & 0xF
-    if opcode in [0x03, 0x08, 0x0F]:
+    if opcode in [0x03, 0x08]:
         return 1
+    if opcode == 0x0F:
+        return 8
     if opcode in [0x04, 0x05, 0x09, 0x0A, 0x0B, 0x0C, 0x0E]:
         return 2
     if opcode in [0x0, 0x1, 0x6, 0xD]:
@@ -27,14 +29,16 @@ def get_inst_size_from_bytes(data, pos):
     return 0
 
 def decode_timer_set(inst):
-    if (inst & 0x1) != 0:
-        return "UNKNOWN"
-    func = (inst >> 1) & 0x3
-    id = (inst >> 3) & 0x1
-    return f"timer_set {id}, {func}"
+    id_ = (inst >> 58) & 0x3
+    func = (inst >> 56) & 0x3
+    threshold = (inst >> 24) & 0xFFFFFFFF
+    pc_off = (inst >> 14) & 0x3FF
+    if pc_off & 0x200:
+        pc_off = -(1024 - pc_off)
+    return f"timer_set {id_}, {func}, {threshold}, {pc_off}"
 
 # 解码1字节指令
-# 只支持TRIGGER、RET、TIMER_SET，其他返回UNKNOWN
+# 只支持TRIGGER、RET，其他返回UNKNOWN
 
 def decode_one_byte_inst(byte):
     opcode = (byte >> 4) & 0xF
@@ -46,8 +50,6 @@ def decode_one_byte_inst(byte):
         if (byte & 0xF) == 0:
             return "ret"
         return "UNKNOWN"
-    elif opcode == 0x0F:
-        return decode_timer_set(byte)
     else:
         return "UNKNOWN"
 
@@ -236,6 +238,8 @@ def decode_eight_byte_inst(bytes_):
     opcode = (bytes_[0] >> 4) & 0xF
     if opcode == 0x7:
         return decode_mov(inst)
+    elif opcode == 0xF:
+        return decode_timer_set(inst)
     else:
         return "UNKNOWN"
 

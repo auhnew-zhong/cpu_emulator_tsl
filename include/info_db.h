@@ -34,11 +34,7 @@ void init_domain_info_table();
 void free_domain_info_table();
 char* get_domain_info(uint32_t id);
 
-// Timer 信息表
-void init_timer_info_table();
-void free_timer_info_table();
-char* get_timer_info(uint32_t id);
-void timer_parse_info(CPU* cpu, uint32_t id);
+// Timer 跳转
 void timer_tick_and_jump(CPU* cpu);
 
 #endif

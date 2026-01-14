@@ -13,8 +13,8 @@
 ## 软核模型
 - 寄存器
   - 数量与宽度：16个32位通用寄存器 `R0`–`R15`（`include/cpu.h:13`）
-  - 约定：`R0`硬连常数0；`R15`作为返回地址寄存器（`exec_BL/exec_RET` 使用）
-  - 历史寄存器：`prev_regs[16]` 保存上一拍值用于边沿检测（`src/cpu.c:843`）
+  - 约定：`RET_REG`作为返回地址寄存器（`exec_BL/exec_RET` 使用）,`R14-R15`作为两个32位计数寄存器
+  - 历史寄存器：`prev_regs[14]` 保存上一拍值用于边沿检测（`src/cpu.c:843`）
 - 程序计数器(PC)
   - `pc` 指向当前指令地址；每次取指后立即 `pc += inst_length`（`src/cpu.c:845`）
   - 跳转类指令在执行阶段对 `pc` 做相对修改（`exec_JMPC/exec_JMP/exec_BL`）
@@ -31,10 +31,10 @@
 
 ## 指令集与编码
 - 长度判定（`src/cpu.c:440-458`）：
-  - 1字节：`trigger(0x3)`、`ret(0x8)`、`timer_set(0xF)`
+  - 1字节：`trigger(0x3)`、`ret(0x8)`
   - 2字节：`trigger_pos(0x4)`、`jmp(0x5)`、`bl(0x9)`、`display(0xB)`、`domain_set(0xA)`、`exec(0xC)`、`edge_detect(0xE)`、`mov(func=1)`
   - 4字节：`jmpc(0x0)`、`arith_op(0x1)`、`bit_slice(0x6)`、`load(0xD)`
-  - 8字节：`movi(0x7, func=0)`（`src/cpu.c:447-455`）
+  - 8字节：`movi(0x7, func=0)`（`src/cpu.c:447-455`）、`timer_set(0xF)`
 - 编码规则（参见 `doc/inst_format.md`）：
   - `jmpc`：[4 op][4 func][4 src1][4 src2][8 addr]
   - `arith_op`：[4 op][4 func][4 dst][4 src1][4 src2]
@@ -42,7 +42,6 @@
   - `load`：[4 op][4 dst][24 addr]
   - `mov/movi`：`mov(func=1)` 2字节；`movi(func=0)` 8字节（`src/cpu.c:508-517`）
   - `edge_detect`：3bit `func` 支持 P/N/H/L/E（`src/cpu.c:685-712`）
-  - `timer_set`：[id(1bit), func(2bit)]，保留位校验（`src/cpu.c:776-791`）
 
 ## 执行流程（逐指令）
 - 主循环（`main.c:82-99`）：
@@ -69,7 +68,7 @@
   - `exec_EDGE_DETECT`（`src/cpu.c:462`）：`func=P/N/H/L/E`，基于 `prev`/`curr`判断，写回 `dst`
   - `exec_TRIGGER`（`src/cpu.c:538`）：打印暂停采样提示
   - `exec_RET`（`src/cpu.c:544`）：`pc=R15` 返回地址，`R15=0`
-  - `exec_TIMER_SET`（`src/cpu.c:551`）：按 `id/func(reset/enable/disable)` 更新计时器与计数器，打印 `get_timer_info()` 内容
+  - `exec_TIMER_SET`（`src/cpu.c:551`）：按 `id/func(reset/enable/disable)` 更新计时器
 - 计时器事件（`src/cpu.c:799` → `src/info_db.c:297`）：
   - `timer_tick_and_jump`：每指令周期调用；检查使能计时器，若达阈值则重置并尝试跳转至 `timer_target_pc`
 
@@ -77,16 +76,15 @@
 - 接口（`include/info_db.h:1-26`）：
   - `set_info_base(path)`：基于输入路径自动截取目录
   - `info_db_init_all()`：依次加载 display/exec/domain/timer 并打印总览
-  - 查询：`get_display_format/get_complete_display_string/get_exec_info/get_domain_info/get_timer_info`
+  - 查询：`get_display_format/get_complete_display_string/get_exec_info/get_domain_info`
 - 实现（`src/info_db.c:1-153`）：
   - `display_info.db`：解析格式字符串与整行内容(包含变量名)，一次性表构建；运行时直接查询与打印
-  - `exec/domain/timer`：统一简单表解析 `{0xID, content}`，缺失时静默跳过
-  - 启动打印示例：`DB载入【DISPLAY】19【EXEC】3【DOMAIN】3【TIMER】1`
+  - `exec/domain`：统一简单表解析 `{0xID, content}`，缺失时静默跳过
+  - 启动打印示例：`DB载入【DISPLAY】19【EXEC】3【DOMAIN】`
 - 示例格式
   - `display_info.db`：`{0x00000001, "concat result: %s", identifier reference: concat_result}, ...`
   - `exec_info.db`：`{0x00000001, debug_script.tcl}`
   - `domain_info.db`：`{0x00000002, [[0, "clk1"], [1, "clk2"]]}`
-  - `timer_info.db`：`{0x00000000, ee6b2800, s2}`（示例语义：周期/标识等）
 
 ## 日志与颜色
 - 开关：`set_ansi_color_enabled(int enabled)`（`include/cpu.h:32`）；关闭后日志为纯文本（无 `\x1b[...]` 控制序列）
@@ -101,7 +99,7 @@
 
 ## 软核模型
 - 指令宽度：1/2/4/8 字节混合；通过操作码高4位与MOV的func位区分长度。
-- 寄存器：16个32位通用寄存器 `R0`–`R15`，`R15`为返回地址寄存器；`R0`硬连0；`prev_regs`保存上一拍用于边沿检测。
+- 寄存器：17个32位通用寄存器 `R0`–`R16`，`R16`为返回地址寄存器；`R0`硬连0；`prev_regs`保存上一拍用于边沿检测。
 - 程序计数器：`pc` 指向当前指令地址；每次取指后先 `pc += inst_length`，分派执行。
 - 总线：提供 `bus_load(addr, size)` 与 `bus_store(addr, size, value)`；CPU通过总线访问DRAM。
 - 内存：模拟DRAM，地址基于 `DRAM_BASE`，二进制被加载到DRAM起始处。
@@ -109,10 +107,10 @@
 
 ## 指令集与编码
 - 长度判定：`src/cpu.c:getInstLength()`
-  - 1字节：`trigger(0x3)`、`ret(0x8)`、`timer_set(0xF)`
+  - 1字节：`trigger(0x3)`、`ret(0x8)`
   - 2字节：`trigger_pos(0x4)`、`jmp(0x5)`、`bl(0x9)`、`display(0xB)`、`domain_set(0xA)`、`exec(0xC)`、`edge_detect(0xE)`、`mov(func=1)`
   - 4字节：`jmpc(0x0)`、`arith_op(0x1)`、`bit_slice(0x6)`、`load(0xD)`
-  - 8字节：`movi(0x7, func=0)`
+  - 8字节：`movi(0x7, func=0)`、`timer_set(0xF)`
 
 - 编码规则(参见 `doc/inst_format.md`)：
   - `jmpc`：[4 op][4 func][4 src1][4 src2][8 addr]
