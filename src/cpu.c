@@ -255,6 +255,8 @@ void exec_JMPC(CPU* cpu, uint32_t inst) {
     uint32_t src1_reg = (inst >> 20) & 0xF;
     uint32_t src2_reg = (inst >> 16) & 0xF;
     int8_t addr = (int8_t)((inst >> 8) & 0xFF);
+    // 处理有符号扩展
+    if (addr & 0x80) addr = -(256 - addr);
 
     // 打印跳转条件指令
     const char* func_symbols[] = {"==", "!=", ">", "<", ">=", "<="};
