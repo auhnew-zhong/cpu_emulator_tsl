@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <assert.h>
 #include <stdbool.h>
@@ -187,7 +188,7 @@ void exec_MOVI(CPU* cpu, uint64_t inst) {
 void exec_TIMER_SET(CPU* cpu, uint64_t inst) {
     uint8_t id = (inst >> 58) & 0x3;
     uint8_t func = (inst >> 56) & 0x3;
-    uint32_t threshold = (inst >> 24) & 0xFFFFFFFF;
+    uint64_t threshold = (inst >> 24) & 0xFFFFFFFF;
     int16_t pc_off = (inst >> 14) & 0x3FF;
     if (pc_off & 0x200) pc_off = -(1024 - pc_off);
 
@@ -208,7 +209,7 @@ void exec_TIMER_SET(CPU* cpu, uint64_t inst) {
         printf("%stimer_set timer%u enable%s\n", ANSI_BOLD_BLUE, id, ANSI_RESET);
         cpu->timer_enabled[id] = 1;
     } else {
-        printf("%stimer_set timer%u %s threshold=%x pc_off=0x%x%s\n", ANSI_BOLD_BLUE, id, fname, threshold, pc_off, ANSI_RESET);
+        printf("%stimer_set timer%u %s threshold=%lu pc_off=%d%s\n", ANSI_BOLD_BLUE, id, fname, threshold, pc_off, ANSI_RESET);
         cpu->timer[id] = 0;
         cpu->timer_threshold[id] = threshold;
         cpu->timer_target_pc[id] = cpu->pc + pc_off;
@@ -762,8 +763,8 @@ void dump_registers(CPU *cpu) {
     printf("   %4s: %#-13.2x  \n", "RET", cpu->ret_reg);
     printf("   %4s: %#-13.2x  ", "C0", cpu->regs[14]);
     printf("   %4s: %#-13.2x  ", "C1", cpu->regs[15]);
-    printf("   %4s: %#-13.2x  ", "T0", cpu->timer[0]);
-    printf("   %4s: %#-13.2x  ", "T1", cpu->timer[1]);
+    printf("   %4s: %#-13.2lx  ", "T0", cpu->timer[0]);
+    printf("   %4s: %#-13.2lx  ", "T1", cpu->timer[1]);
     printf("   %4s: %#-13.2x  ", "PC", cpu->pc);
     print_color(ANSI_RESET);
 }
@@ -802,7 +803,7 @@ int cpu_execute(CPU *cpu, uint64_t inst, uint8_t inst_length) {
         return 0;
     }
 
-    // 执行定时器 tick 并跳转
+    // 执行定时器 tick 并跳转，它应该是累加DUT时钟周期，那不应该放在这，暂定
     timer_tick_and_jump(cpu);
 
     return 1;  // 明确返回执行状态（1表示正常，0表示异常）

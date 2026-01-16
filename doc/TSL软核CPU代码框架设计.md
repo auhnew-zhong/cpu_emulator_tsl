@@ -70,7 +70,7 @@
   - `exec_RET`（`src/cpu.c:544`）：`pc=R15` 返回地址，`R15=0`
   - `exec_TIMER_SET`（`src/cpu.c:551`）：按 `id/func(reset/enable/disable)` 更新计时器
 - 计时器事件（`src/cpu.c:799` → `src/info_db.c:297`）：
-  - `timer_tick_and_jump`：每指令周期调用；检查使能计时器，若达阈值则重置并尝试跳转至 `timer_target_pc`
+  - `timer_tick_and_jump`：每指令周期调用；驱动两个64位计时器计数；检查使能计时器，若达阈值则重置并尝试跳转至 `timer_target_pc`
 
 ## 信息库(DB)加载与格式
 - 接口（`include/info_db.h:1-26`）：

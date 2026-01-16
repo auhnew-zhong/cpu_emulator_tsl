@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <inttypes.h>
 
 #include "../include/color.h"
 #include "../include/info_db.h"
@@ -260,12 +261,12 @@ char* get_domain_info(uint32_t id) { return get_simple_info(id, domain_info_tabl
 void timer_tick_and_jump(CPU* cpu) {
     for (int id = 0; id < 2; ++id) {
         if (cpu->timer_enabled[id]) {
-            uint32_t c = cpu->timer[id] + 1;
+            uint64_t c = cpu->timer[id] + 1;
             cpu->timer[id] = c;
             if (c >= cpu->timer_threshold[id]) {
                 cpu->timer[id] = 0;
                 if (cpu->timer_target_pc[id]) {
-                    printf("%sTimer %d reached %u, jump -> %#.8x%s\n", ANSI_BOLD_GREEN, id, cpu->timer_threshold[id], cpu->timer_target_pc[id], ANSI_RESET);
+                    printf("%sTimer %d reached %" PRIu64 ", jump -> %#.8x%s\n", ANSI_BOLD_GREEN, id, cpu->timer_threshold[id], cpu->timer_target_pc[id], ANSI_RESET);
                     cpu->pc = cpu->timer_target_pc[id];
                 } else {
                     printf("%s[cpu][timer] threshold reached (id=%d) but no target%s\n", ANSI_BOLD_RED, id, ANSI_RESET);
