@@ -55,7 +55,7 @@ void cpu_init(CPU *cpu) {
 uint8_t get_inst_size(uint8_t opcode, CPU *cpu) {
     if (opcode == trigger || opcode == ret)
         return 1;
-    else if (opcode == trigger_pos || opcode == jmp || opcode == bl || opcode == display || opcode == edge_detect || opcode == domain_set || opcode == exec)
+    else if (opcode == trigger_pos || opcode == jmp || opcode == bl || opcode == edge_detect || opcode == domain_set || opcode == send)
         return 2;
     else if (opcode == jmpc || opcode == arith_op || opcode == load || opcode == bit_slice)
         return 4;
@@ -555,42 +555,48 @@ void exec_DOMAIN_SET(CPU* cpu, uint16_t inst) {
 }
 
 /*
- * exec_DISPLAY
- * 作用：执行显示指令。
+ * exec_SEND
+ * 作用：执行统一发送指令。
  * 行为：
- *   - 根据操作码执行对应的显示操作；
- *   - 打印显示字符串。
+ *   - 根据操作码执行对应的内建操作（display、exec、force、release、dump on/off、get/set、load 等）；
  */
-void exec_DISPLAY(CPU* cpu, uint16_t inst) {
-    // 根据指令格式 [4bit op][10bit id][2bit rsv]
-    uint16_t id = (inst >> 2) & 0x3FF;
-    printf("%sdisplay %u%s\n", ANSI_BOLD_BLUE, id, ANSI_RESET);
-    
-    // 获取完整的display字符串（格式+变量）
-    char* complete_string = get_complete_display_string(id);
-    if (complete_string) {
-        printf("%sdisplay(%s)%s\n", ANSI_BOLD_GREEN, complete_string, ANSI_RESET);
-    } else {
-        fprintf(stderr, "%s[cpu][db] display not found: %u!%s\n", ANSI_RED, id, ANSI_RESET);
-    }
-}
+void exec_SEND(CPU* cpu, uint16_t inst) {
+    uint8_t func = (inst >> 8) & 0xF;
+    uint8_t db_id = (inst >> 1) & 0x7F;
+    // uint8_t extra = inst & 0x1; // 预留
 
-/*
- * exec_EXEC
- * 作用：执行执行指令。
- * 行为：
- *   - 根据操作码执行对应的执行操作；
- *   - 打印执行函数信息。
- */
-void exec_EXEC(CPU* cpu, uint16_t inst_16) {
-    uint16_t id = (inst_16 >> 2) & 0x3FF;
-    printf("%sexec %u%s\n", ANSI_BOLD_BLUE, id, ANSI_RESET);
-    char* info = get_exec_info(id);
-    if (info) {
-        printf("%sexec(%s)%s\n", ANSI_BOLD_GREEN, info, ANSI_RESET);
+    char* type = get_builtin_type(db_id);
+    char* content = get_builtin_info(db_id);
+
+    if (type) {
+        printf("%s%s %u: %s%s\n", ANSI_BOLD_BLUE, type, db_id, content ? content : "", ANSI_RESET);
     } else {
-        printf("%sExec: No info found for ID %u%s\n", ANSI_RED, id, ANSI_RESET);
-        assert(0);
+        printf("%ssend func:0x%x db_id:%u (no builtin info)%s\n", ANSI_BOLD_BLUE, func, db_id, ANSI_RESET);
+    }
+
+    // 根据 func 进行额外的具体发起动作（如有需要）
+    switch (func) {
+        case 0x0: // display
+            break;
+        case 0x1: // exec
+            break;
+        case 0x2: // force
+            break;
+        case 0x3: // release
+            break;
+        case 0x4: // dump on
+            break;
+        case 0x5: // dump off
+            break;
+        case 0x6: // get
+            break;
+        case 0x7: // set
+            break;
+        case 0x8: // load
+            break;
+        default:
+            fprintf(stderr, "%s[cpu][send] unknown func: 0x%x%s\n", ANSI_RED, func, ANSI_RESET);
+            break;
     }
 }
 
@@ -662,11 +668,8 @@ int decode_two_byte_inst(CPU* cpu, uint64_t inst) {
         case 0xA: // DOMAIN_SET
             exec_DOMAIN_SET(cpu, inst_16);
             break;
-        case 0xB: // DISPLAY
-            exec_DISPLAY(cpu, inst_16);
-            break;
-        case 0xC: // EXEC
-            exec_EXEC(cpu, inst_16);
+        case 0xB: // SEND
+            exec_SEND(cpu, inst_16);
             break;
         case 0xE: // EDGE_DETECT
             exec_EDGE_DETECT(cpu, inst_16);
@@ -816,7 +819,6 @@ int cpu_execute(CPU *cpu, uint64_t inst, uint8_t inst_length) {
  *   - 释放显示信息表、执行信息表、域信息表、定时器信息表等资源。
  */
 void cpu_cleanup(CPU *cpu) {
-    free_display_info_table();
-    free_exec_info_table();
+    free_builtin_info_table();
     free_domain_info_table();
 }

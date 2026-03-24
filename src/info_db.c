@@ -45,29 +45,24 @@ uint32_t get_signal_value(uint32_t addr) {
     return 0;
 }
 
-typedef struct display_info_entry {
+typedef struct builtin_info_entry {
     uint32_t id;
-    char* format;
+    char* type;
     char* content;
-} display_info_entry;
+} builtin_info_entry;
 
-static display_info_entry* display_info_table = NULL;
-static int display_info_table_size = 0;
+static builtin_info_entry* builtin_info_table = NULL;
+static int builtin_info_table_size = 0;
 static char info_base_dir[512] = "examples";
 
 /*
  * set_info_base
- * 作用：设置信息库基目录，用于后续拼接如 "display_info.db"、"exec_info.db" 等文件路径。
+ * 作用：设置信息库基目录，用于后续拼接如 "builtin_info.db"、"domain_info.db" 等文件路径。
  * 行为：
  *   - 如果传入的是包含 '/' 的路径（文件或目录），取最后一个 '/' 之前的部分作为目录；
  *   - 如果不包含 '/'，则直接将整个字符串作为目录；
  *   - 进行安全拷贝并在末尾补 '\0'，避免越界。
  * 兼容性：仅处理 POSIX 分隔符 '/'，不对 Windows '\\' 做特殊处理。
- * 示例：
- *   set_info_base("/home/user/project/examples/display_info.db") => info_base_dir = "/home/user/project/examples"
- *   set_info_base("/home/user/project/examples/")                => info_base_dir = "/home/user/project/examples"
- *   set_info_base("examples")                                    => info_base_dir = "examples"
- *   set_info_base("/examples")                                   => info_base_dir = ""（空字符串）；后续拼接将形成 "/display_info.db" 绝对路径。
  */
 void set_info_base(const char* dir) {
     const char* last_slash = strrchr(dir, '/');  // 查找最后一个 '/'，以区分目录与文件名
@@ -83,106 +78,95 @@ void set_info_base(const char* dir) {
 }
 
 /*
- * init_display_info_table
- * 作用：加载 display 信息表（格式字符串与完整内容），用于将执行事件映射为可读输出。
- * 输入：无（使用全局 info_base_dir 拼接 "display_info.db"）。
- * 文件格式：每行形如 {0xID,"FORMAT",CONTENT...}
- * 流程：
- *   1) 统计行数以分配表内存；
- *   2) 逐行解析：提取十六进制 ID、双引号中的 FORMAT、其后的 CONTENT；
- *   3) 将解析结果写入 display_info_table，并记录表大小；
- *   4) 失败容错：无法打开文件或单行解析失败时跳过该行。
- * 资源管理：成功后调用者可通过 free_display_info_table 释放内存。
+ * init_builtin_info_table
+ * 作用：加载 builtin 信息表，包含 display/exec/force/release/dump/get/set/load 等统一操作。
+ * 输入：无（使用全局 info_base_dir 拼接 "builtin_info.db"）。
+ * 文件格式：每行形如 {0xID, "TYPE", "CONTENT", [ARGS...]}
  */
-void init_display_info_table() {
+void init_builtin_info_table() {
     char path[1024];
-    snprintf(path, sizeof(path), "%s/display_info.db", info_base_dir);
+    snprintf(path, sizeof(path), "%s/builtin_info.db", info_base_dir);
     FILE* file = fopen(path, "r");
     if (!file) {
-        fprintf(stderr, "[info_db][display] open failed: %s\n", path);
+        fprintf(stderr, "[info_db][builtin] open failed: %s\n", path);
         return;
     }
     int lines = 0; char ch;
     while(!feof(file)) { ch = fgetc(file); if (ch == '\n') lines++; }
     rewind(file);
-    display_info_table = (display_info_entry*)malloc(lines * sizeof(display_info_entry));
-    if (!display_info_table) { fclose(file); return; }
-    char line[512]; int i = 0;
+    builtin_info_table = (builtin_info_entry*)malloc(lines * sizeof(builtin_info_entry));
+    if (!builtin_info_table) { fclose(file); return; }
+    char line[1024]; int i = 0;
     while (fgets(line, sizeof(line), file) && i < lines) {
         if (line[0] != '{') continue;
-        uint32_t id; if (sscanf(line, "{0x%x,", &id) != 1) continue;
-        char* format_start = strchr(line, '"');
-        if (!format_start) continue;
-        char* format_end = strchr(format_start + 1, '"');
-        if (!format_end) continue;
-        int format_len = format_end - format_start - 1;
-        char* format = (char*)malloc(format_len + 1);
-        if (!format) continue;
-        strncpy(format, format_start + 1, format_len);
-        format[format_len] = '\0';
-        char* content_start = strchr(line, ',');
-        if (!content_start) { free(format); continue; }
-        content_start++; while (*content_start == ' ') content_start++;
-        char* content_end = strrchr(line, '}');
-        if (!content_end) { free(format); continue; }
-        *content_end = '\0';
-        size_t content_len = strlen(content_start);
+        uint32_t id; 
+        if (sscanf(line, "{0x%x,", &id) != 1) continue;
+        
+        // 提取 TYPE
+        char* type_start = strchr(line, '"');
+        if (!type_start) continue;
+        char* type_end = strchr(type_start + 1, '"');
+        if (!type_end) continue;
+        int type_len = type_end - type_start - 1;
+        char* type = (char*)malloc(type_len + 1);
+        if (!type) continue;
+        strncpy(type, type_start + 1, type_len);
+        type[type_len] = '\0';
+
+        // 提取 CONTENT
+        char* content_start = strchr(type_end + 1, '"');
+        if (!content_start) { free(type); continue; }
+        char* content_end = strchr(content_start + 1, '"');
+        if (!content_end) { free(type); continue; }
+        int content_len = content_end - content_start - 1;
         char* content = (char*)malloc(content_len + 1);
-        if (!content) { free(format); continue; }
-        strcpy(content, content_start);
-        display_info_table[i].id = id;
-        display_info_table[i].format = format;
-        display_info_table[i].content = content;
+        if (!content) { free(type); continue; }
+        strncpy(content, content_start + 1, content_len);
+        content[content_len] = '\0';
+
+        builtin_info_table[i].id = id;
+        builtin_info_table[i].type = type;
+        builtin_info_table[i].content = content;
         i++;
     }
-    display_info_table_size = i;
+    builtin_info_table_size = i;
     fclose(file);
 }
 
 /*
- * free_display_info_table
- * 作用：释放 display 信息表的动态内存，避免泄漏。
- * 行为：逐项释放 format/content，再释放表指针并重置大小。
+ * free_builtin_info_table
+ * 作用：释放 builtin 信息表的动态内存。
  */
-void free_display_info_table() {
-    if (display_info_table) {
-        for (int i = 0; i < display_info_table_size; i++) {
-            if (display_info_table[i].format) free(display_info_table[i].format);
-            if (display_info_table[i].content) free(display_info_table[i].content);
+void free_builtin_info_table() {
+    if (builtin_info_table) {
+        for (int i = 0; i < builtin_info_table_size; i++) {
+            if (builtin_info_table[i].type) free(builtin_info_table[i].type);
+            if (builtin_info_table[i].content) free(builtin_info_table[i].content);
         }
-        free(display_info_table);
-        display_info_table = NULL;
-        display_info_table_size = 0;
+        free(builtin_info_table);
+        builtin_info_table = NULL;
+        builtin_info_table_size = 0;
     }
 }
 
 /*
- * get_display_format
- * 作用：通过 ID 查找对应的格式串（只读）。
- * 返回：找到则返回指针；否则返回 NULL。指针生命周期随表而定。
+ * get_builtin_info
+ * 作用：通过 ID 获取完整的展示字符串。
  */
-char* get_display_format(uint32_t id) {
-    for (int i = 0; i < display_info_table_size; i++) {
-        if (display_info_table[i].id == id) return display_info_table[i].format;
+char* get_builtin_info(uint32_t id) {
+    for (int i = 0; i < builtin_info_table_size; i++) {
+        if (builtin_info_table[i].id == id) return builtin_info_table[i].content;
     }
     return NULL;
 }
 
 /*
- * get_complete_display_string
- * 作用：通过 ID 获取完整的展示字符串（如已渲染好的文本）。
- * 返回：写入并返回静态缓冲区 result；未命中返回 NULL。
- * 注意：返回缓冲区为静态存储，非线程安全，后续调用会覆盖。
+ * get_builtin_type
+ * 作用：通过 ID 获取指令类型（display/exec等）。
  */
-char* get_complete_display_string(uint32_t id) {
-    static char result[1024];
-    result[0] = '\0';
-    for (int i = 0; i < display_info_table_size; i++) {
-        if (display_info_table[i].id == id && display_info_table[i].content) {
-            strncpy(result, display_info_table[i].content, sizeof(result) - 1);
-            result[sizeof(result) - 1] = '\0';
-            return result;
-        }
+char* get_builtin_type(uint32_t id) {
+    for (int i = 0; i < builtin_info_table_size; i++) {
+        if (builtin_info_table[i].id == id) return builtin_info_table[i].type;
     }
     return NULL;
 }
@@ -192,7 +176,6 @@ typedef struct simple_entry {
     char* content;
 } simple_entry;
 
-static simple_entry* exec_info_table = NULL; static int exec_info_table_size = 0;
 static simple_entry* domain_info_table = NULL; static int domain_info_table_size = 0;
 
 /*
@@ -242,10 +225,6 @@ static char* get_simple_info(uint32_t id, simple_entry* table, int table_size) {
     for (int i = 0; i < table_size; i++) if (table[i].id == id) return table[i].content; return NULL;
 }
 
-void init_exec_info_table() { init_simple_table("exec_info.db", &exec_info_table, &exec_info_table_size); }
-void free_exec_info_table() { free_simple_table(&exec_info_table, &exec_info_table_size); }
-char* get_exec_info(uint32_t id) { return get_simple_info(id, exec_info_table, exec_info_table_size); }
-
 void init_domain_info_table() { init_simple_table("domain_info.db", &domain_info_table, &domain_info_table_size); }
 void free_domain_info_table() { free_simple_table(&domain_info_table, &domain_info_table_size); }
 char* get_domain_info(uint32_t id) { return get_simple_info(id, domain_info_table, domain_info_table_size); }
@@ -282,11 +261,8 @@ void timer_tick_and_jump(CPU* cpu) {
  * 输出：打印各表的加载数量，便于排查缺失文件或解析异常。
  */
 void info_db_init_all(CPU* cpu) {
-    // 初始化显示信息表
-    init_display_info_table();
-
-    // 初始化执行信息表
-    init_exec_info_table();
+    // 初始化 builtin 信息表
+    init_builtin_info_table();
 
     // 初始化域信息表
     init_domain_info_table();
@@ -296,9 +272,8 @@ void info_db_init_all(CPU* cpu) {
     printf("[DB INFO]:\n");
     print_color(ANSI_RESET);
     print_color(ANSI_BOLD_WHITE);
-    printf("   DISPLAY:%d EXEC:%d DOMAIN:%d\n", 
-           display_info_table_size,
-           exec_info_table_size,
+    printf("   BUILTIN:%d DOMAIN:%d\n", 
+           builtin_info_table_size,
            domain_info_table_size);
     print_color(ANSI_RESET);
 }

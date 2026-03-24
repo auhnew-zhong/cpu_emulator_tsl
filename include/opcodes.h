@@ -12,8 +12,7 @@
 #define ret         0x8
 #define bl          0x9
 #define domain_set  0xa
-#define display     0xb
-#define exec        0xc
+#define send        0xb
 #define load        0xd
 #define edge_detect 0xe
 #define timer_set   0xf

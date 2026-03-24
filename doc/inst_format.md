@@ -50,19 +50,19 @@
 11. domain_set（0xa，大小：16bit）
     [4bit op][8bit domain_id][4bit rsv]
     功能：域设定
-12. display（0xb，大小：16bit）
-    [4bit op][10bit id][2bit rsv]
-    功能：打印函数
-13. exec（0xc，大小：16bit）
-    [4bit op][10bit id][2bit rsv]
-    功能：执行函数
-14. load（0xd，大小：32bit）
+12. send（0xb，大小：16bit）
+    [4bit op][4bit func][7bit db_id][1bit extra]
+    功能：统一发送内建操作（display、exec、force、release、dump on/off、get/set、load 等）
+    - func：4bit 操作类型，示例 0000=display，0001=exec（其余保留扩展）
+    - db_id：7bit 数据库标识，范围 0-127
+    - extra：额外语义位，当前预填 0
+13. load（0xd，大小：32bit）
     [4bit op][4bit dest][24bit addr]
     功能：从内存加载数据到寄存器
-15. edge_detect（0xe，大小：16bit）
+14. edge_detect（0xe，大小：16bit）
     [4bit op][4bit dst][4bit src][3bit func][1bit rsv]
     功能：信号边沿检测 （上升沿、下降沿等）
-16. timer_set（0xf，大小：64bit）
+15. timer_set（0xf，大小：64bit）
     [4bit op][2bit id][2bit func][32bit threshold][10bit pc_off][14bit rsv]
     功能：统一配置并控制计时器。
     - id：计时器编号（2bit，支持 0-1, 空出一位预留）

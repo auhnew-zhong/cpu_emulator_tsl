@@ -1,0 +1,51 @@
+// Global Definition Section
+
+domain domain0 @(posedge clk1);
+domain domain1 @(negedge clk2);
+
+triggerPos = 10;
+
+timer timer0 {
+  value = 4000000000;
+  target = s2;
+}
+
+counter counter0 = {2{'b10}};
+counter counter1 = 4'b1100;
+
+if (top.ctl.sig0 == 32'h1001cccc) {
+  trigger;
+}
+
+// INSTANCE Definition Section
+instance inst1 {
+    // States Definition Section
+    state s1 {
+        domain domain0;
+        if (top.op[5:5] == 'bN) {
+          increment counter counter0;
+          enable timer timer0;
+          display("top.op[5:5] : %s", top.op[5:5]);
+          exec("tcl_command_example");
+        } else {
+          force op.ctl.sig0 = 1'b1;
+          set op.ctl.sig1 = 1'b0;
+          load("xxx.mem", program.txt);
+          dump on;
+          display("force op.ctl.sig0!");
+          goto s2;
+        }
+    }
+
+    // States Definition Section
+    state s2 {
+        domain domain1;
+        if (op.ctl.sig0 == 1'b1) {
+          release op.ctl.sig0;
+          trigger;
+        } else {
+          get op.ctr.sig1;
+          dump off;
+        }
+    }
+}

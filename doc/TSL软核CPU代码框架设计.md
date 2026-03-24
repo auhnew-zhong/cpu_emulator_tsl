@@ -106,9 +106,10 @@
 - 单周期模型：每条指令视为单周期，顺序执行，不建流水/乱序；边沿检测基于 `prev_regs` 与当前寄存器快照差异。
 
 ## 指令集与编码
+- 指令集与编码
 - 长度判定：`src/cpu.c:getInstLength()`
   - 1字节：`trigger(0x3)`、`ret(0x8)`
-  - 2字节：`trigger_pos(0x4)`、`jmp(0x5)`、`bl(0x9)`、`display(0xB)`、`domain_set(0xA)`、`exec(0xC)`、`edge_detect(0xE)`、`mov(func=1)`
+  - 2字节：`trigger_pos(0x4)`、`jmp(0x5)`、`bl(0x9)`、`send(0xB)`、`domain_set(0xA)`、`edge_detect(0xE)`、`mov(func=1)`
   - 4字节：`jmpc(0x0)`、`arith_op(0x1)`、`bit_slice(0x6)`、`load(0xD)`
   - 8字节：`movi(0x7, func=0)`、`timer_set(0xF)`
 
@@ -147,11 +148,11 @@
   - `exec_BL(CPU*, uint16_t)`：保存返回地址至 `R15` 并相对跳转(10bit符号)。
   - `exec_DOMAIN_SET(CPU*, uint16_t)`：写入域；查询 `domain_info.db` 打印说明。
   - `exec_JMP(CPU*, uint16_t)`：8bit符号相对跳转。
-  - `exec_DISPLAY(CPU*, uint16_t)`：查询 `display_info.db` 按格式字符串打印完整内容。
+  - `exec_SEND(CPU*, uint16_t)`：统一发送内建操作，包含 display 和 exec 等。
   - `exec_EDGE_DETECT(CPU*, uint16_t)`：基于 `prev_regs`/当前值与 `func` (P/N/H/L/E) 写结果到 `dst`。
   - `exec_TRIGGER(CPU*, uint8_t)`：打印暂停与采样提示。
   - `exec_RET(CPU*, uint8_t)`：将 `pc` 设置为 `R15` 返回地址并清零 `R15`。
-  - `exec_TIMER_SET(CPU*, uint8_t)`：按 `id/func` 重置/启停计数器，打印 `timer_info.db` 信息。
+  - `exec_TIMER_SET(CPU*, uint64_t)`：按 `id/func` 重置/启停计数器，打印 `timer_info.db` 信息。
 
 ## 信息库(DB)加载
 - 接口：`include/info_db.h`

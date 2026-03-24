@@ -18,16 +18,11 @@ void set_info_base(const char* dir);
 void info_db_init_all(CPU* cpu);
 uint32_t get_signal_value(uint32_t addr);
 
-// Display 信息表
-void init_display_info_table();
-void free_display_info_table();
-char* get_display_format(uint32_t id);
-char* get_complete_display_string(uint32_t id);
-
-// Exec 信息表
-void init_exec_info_table();
-void free_exec_info_table();
-char* get_exec_info(uint32_t id);
+// Builtin 信息表
+void init_builtin_info_table();
+void free_builtin_info_table();
+char* get_builtin_info(uint32_t id);
+char* get_builtin_type(uint32_t id);
 
 // Domain 信息表
 void init_domain_info_table();
