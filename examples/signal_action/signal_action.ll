@@ -51,10 +51,10 @@ then:                                             ; preds = %s1
   br label %merge
 
 else:                                             ; preds = %s1
-  call void @llvm.tsl.send(i32 4, i32 2, i32 0)
-  call void @llvm.tsl.send(i32 3, i32 3, i32 0)
-  call void @llvm.tsl.send(i32 8, i32 4, i32 0)
-  call void @llvm.tsl.send(i32 6, i32 5, i32 0)
+  call void @llvm.tsl.send(i32 1, i32 2, i32 0)
+  call void @llvm.tsl.send(i32 1, i32 3, i32 0)
+  call void @llvm.tsl.send(i32 1, i32 4, i32 0)
+  call void @llvm.tsl.send(i32 1, i32 5, i32 0)
   call void @llvm.tsl.send(i32 0, i32 6, i32 0)
   br label %s2
 
@@ -62,13 +62,13 @@ merge:                                            ; preds = %then
   ret void
 
 then1:                                            ; preds = %s2
-  call void @llvm.tsl.send(i32 5, i32 7, i32 0)
+  call void @llvm.tsl.send(i32 1, i32 7, i32 0)
   call void @llvm.tsl.trigger()
   br label %merge3
 
 else2:                                            ; preds = %s2
-  call void @llvm.tsl.send(i32 2, i32 8, i32 0)
-  call void @llvm.tsl.send(i32 7, i32 9, i32 0)
+  call void @llvm.tsl.send(i32 1, i32 8, i32 0)
+  call void @llvm.tsl.send(i32 1, i32 9, i32 0)
   br label %merge3
 
 merge3:                                           ; preds = %else2, %then1

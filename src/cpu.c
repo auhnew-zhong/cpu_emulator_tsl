@@ -16,6 +16,9 @@
 //=====================================================================================
 
 void cpu_init(CPU *cpu) {
+    // 显式将整个 CPU 结构体清零（包括 DRAM 和寄存器）
+    memset(cpu, 0, sizeof(CPU));
+
     // 初始化通用寄存器
     for (int i = 0; i < 14; i++) {
         cpu->regs[i] = 0x0;
@@ -558,7 +561,7 @@ void exec_DOMAIN_SET(CPU* cpu, uint16_t inst) {
  * exec_SEND
  * 作用：执行统一发送指令。
  * 行为：
- *   - 根据操作码执行对应的内建操作（display、exec、force、release、dump on/off、get/set、load 等）；
+ *   - 根据操作码执行对应的内建操作（display、exec）；
  */
 void exec_SEND(CPU* cpu, uint16_t inst) {
     uint8_t func = (inst >> 8) & 0xF;
@@ -579,20 +582,6 @@ void exec_SEND(CPU* cpu, uint16_t inst) {
         case 0x0: // display
             break;
         case 0x1: // exec
-            break;
-        case 0x2: // force
-            break;
-        case 0x3: // release
-            break;
-        case 0x4: // dump on
-            break;
-        case 0x5: // dump off
-            break;
-        case 0x6: // get
-            break;
-        case 0x7: // set
-            break;
-        case 0x8: // load
             break;
         default:
             fprintf(stderr, "%s[cpu][send] unknown func: 0x%x%s\n", ANSI_RED, func, ANSI_RESET);

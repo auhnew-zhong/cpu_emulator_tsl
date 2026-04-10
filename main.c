@@ -15,26 +15,32 @@
  *   - 将缓冲区内容复制到CPU的DRAM中；
  *   - 关闭文件。
  * 示例：
- *   read_file(cpu, "program.bin") => 无返回值
+ *   read_file(cpu, "program.bin") => 1024 (返回加载的字节数)
  */
-void read_file(CPU* cpu, char *filename) {
+size_t read_file(CPU* cpu, char *filename) {
     FILE *file = fopen(filename, "rb");
     if (!file) {
         printf("%sUnable to open file %s%s\n", ANSI_RED, filename, ANSI_RESET);
-        return;
+        return 0;
     }
 
-    if (fseek(file, 0, SEEK_END) != 0) { fclose(file); printf("%sSeek error%s\n", ANSI_RED, ANSI_RESET); return; }
+    if (fseek(file, 0, SEEK_END) != 0) { fclose(file); printf("%sSeek error%s\n", ANSI_RED, ANSI_RESET); return 0; }
     unsigned long fileLen = ftell(file);
-    if (fileLen == (unsigned long)-1) { fclose(file); printf("%sTell error%s\n", ANSI_RED, ANSI_RESET); return; }
-    if (fseek(file, 0, SEEK_SET) != 0) { fclose(file); printf("%sSeek error%s\n", ANSI_RED, ANSI_RESET); return; }
+    if (fileLen == (unsigned long)-1) { fclose(file); printf("%sTell error%s\n", ANSI_RED, ANSI_RESET); return 0; }
+    if (fseek(file, 0, SEEK_SET) != 0) { fclose(file); printf("%sSeek error%s\n", ANSI_RED, ANSI_RESET); return 0; }
+
+    if (fileLen == 0) {
+        printf("%sError: file is empty, nothing to load%s!\n", ANSI_RED, ANSI_RESET);
+        fclose(file);
+        return 0;
+    }
 
     uint8_t *buffer = (uint8_t *)malloc(fileLen);
-    if (!buffer) { fclose(file); printf("%sMemory error%s\n", ANSI_RED, ANSI_RESET); return; }
+    if (!buffer) { fclose(file); printf("%sMemory error%s\n", ANSI_RED, ANSI_RESET); return 0; }
 
     size_t read_bytes = fread(buffer, 1, fileLen, file);
     fclose(file);
-    if (read_bytes != fileLen) { printf("%sRead error (%zu/%lu)%s\n", ANSI_RED, read_bytes, fileLen, ANSI_RESET); free(buffer); return; }
+    if (read_bytes != fileLen) { printf("%sRead error (%zu/%lu)%s\n", ANSI_RED, read_bytes, fileLen, ANSI_RESET); free(buffer); return 0; }
 
     printf("%s[MEMORY INFO]:%s", ANSI_BOLD, ANSI_RESET);
     for (size_t i = 0; i < read_bytes; i++) {
@@ -53,6 +59,7 @@ void read_file(CPU* cpu, char *filename) {
     memcpy(cpu->bus.dram.mem, buffer, copy_bytes);
     printf("\n%sSuccessfully loaded %s (%zu bytes)%s!\n", ANSI_BOLD, filename, copy_bytes, ANSI_RESET);
     free(buffer);
+    return copy_bytes;
 }
 
 /*
@@ -86,7 +93,10 @@ int main(int argc, char* argv[]) {
     cpu_init(&cpu);
 
     // Read input file
-    read_file(&cpu, argv[1]);
+    if (read_file(&cpu, argv[1]) == 0) {
+        cpu_cleanup(&cpu);
+        return 0;
+    }
 
     // cpu loop
     while (1) {

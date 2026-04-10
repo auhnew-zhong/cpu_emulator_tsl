@@ -28,10 +28,10 @@ instance inst1 {
           display("top.op[5:5] : %s", top.op[5:5]);
           exec("tcl_command_example");
         } else {
-          force op.ctl.sig0 = 1'b1;
-          set op.ctl.sig1 = 1'b0;
-          load("xxx.mem", program.txt);
-          dump on;
+          exec("force op.ctl.sig0 1");
+          exec("set op.ctl.sig1 0");
+          exec("load xxx.mem program.txt");
+          exec("dump on");
           display("force op.ctl.sig0!");
           goto s2;
         }
@@ -41,11 +41,11 @@ instance inst1 {
     state s2 {
         domain domain1;
         if (op.ctl.sig0 == 1'b1) {
-          release op.ctl.sig0;
+          exec("release op.ctl.sig0");
           trigger;
         } else {
-          get op.ctr.sig1;
-          dump off;
+          exec("get op.ctr.sig1");
+          exec("dump off");
         }
     }
 }

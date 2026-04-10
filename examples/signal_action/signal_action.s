@@ -38,10 +38,10 @@ inst1:                                  # @inst1
 	send 1, 1, 0
 	ret
 .LBB1_2:                                # %else
-	send 4, 2, 0
-	send 3, 3, 0
-	send 8, 4, 0
-	send 6, 5, 0
+	send 1, 2, 0
+	send 1, 3, 0
+	send 1, 4, 0
+	send 1, 5, 0
 	send 0, 6, 0
 .Ltmp0:                                 # Block address taken
 # %bb.3:                                # %s2
@@ -50,12 +50,12 @@ inst1:                                  # @inst1
 	jmpc 0, %r1, %r0, @.LBB1_4
 	jmp	@.LBB1_5
 .LBB1_4:                                # %then1
-	send 5, 7, 0
+	send 1, 7, 0
 	trigger
 	ret
 .LBB1_5:                                # %else2
-	send 2, 8, 0
-	send 7, 9, 0
+	send 1, 8, 0
+	send 1, 9, 0
 	ret
 .Lfunc_end1:
 	.size	inst1, .Lfunc_end1-inst1
